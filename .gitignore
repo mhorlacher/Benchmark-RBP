@@ -5,9 +5,10 @@ results/
 sandbox_lambert/
 
 **/raw/
-**/processed/
-**/processed*/
-**/*processed*/
+train/**/*processed*/
+evaluation/**/*processed*/
+data/proc/**/*processed*/
+# **/*processed*/
 **/meta/
 **/logs/
 **/logs*/
@@ -89,3 +90,6 @@ methods/
 **/*.py,cover
 **/.hypothesis/
 **/.pytest
+
+# ALLOW
+!/data/datasets/ENCODE/processed/**/*
