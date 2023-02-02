@@ -1,0 +1,7 @@
+{
+    "conv_num": 3,
+    "kernel_num": 150,
+    "kernel_len": 18, 
+    "batch_size": 128,
+    "epochs": 200
+}

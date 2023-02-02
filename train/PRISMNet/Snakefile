@@ -1,0 +1,88 @@
+gw = glob_wildcards('inputs/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD_2}.fasta')
+
+# print(gw)
+
+FOLDS = [0,]
+NEGATIVES = ['negative-1', 'negative-2']
+
+rule ALL:
+    input:
+#        expand(expand('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/out/models/all.train_PrismNet_pu_best.pth', zip, DATASET=gw.DATASET, NAME=gw.NAME, FOLD=gw.FOLD, allow_missing=True), NTYPE=['negative-1', 'negative-1-2']),
+        expand(expand('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/out/models/all.train_PrismNet_pu_best.pth', zip, DATASET=gw.DATASET, NAME=gw.NAME, allow_missing=True), FOLD=FOLDS, NTYPE=NEGATIVES),
+
+def not_FOLD(fold):
+    return list(set(gw.FOLD).difference({fold}))
+
+rule PRISMNet_compile_NEGATIVE_TRAIN:
+    input:
+        tsv = lambda wc: expand('inputs/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}.fold-{FOLD}.tsv', FOLD=not_FOLD(wc.FOLD), allow_missing=True),
+        # tsv = lambda wc: expand('inputs-example/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}.fold-{FOLD}.tsv', FOLD=not_FOLD(wc.FOLD), allow_missing=True),
+    output:
+        tsv = temp('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/negative.train.tsv')
+    shell:
+        'cat {input.tsv} > {output.tsv}'
+
+rule PRISMNet_compile_POSITIVE_TRAIN:
+    input:
+        tsv = lambda wc: expand('inputs/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD}.tsv', FOLD=not_FOLD(wc.FOLD), allow_missing=True),
+        # tsv = lambda wc: expand('inputs-example/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD}.tsv', FOLD=not_FOLD(wc.FOLD), allow_missing=True),
+    output:
+        tsv = temp('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/positive.train.tsv')
+    shell:
+        'cat {input.tsv} > {output.tsv}'
+
+# Put together positives and negatives within one fold and ntype
+rule PRISMNet_compile_ALL_SET:
+    input:
+        neg_tsv = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/negative.train.tsv',
+        pos_tsv = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/positive.train.tsv'
+    output:
+        # TODO Temp: keep for debugging
+        # all_tsv = temp('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/all.train.tsv'),
+        all_tsv = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/all.train.tsv'
+    shell:
+        'cat {input.neg_tsv} {input.pos_tsv} > {output.all_tsv}'
+
+# We create train and test datasets in h5py format
+rule PRISMNet_train_val_split:
+    # conda: "../conda/PrismNet.conda.env.yml"
+    input:
+        "processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/all.train.tsv"
+    output:
+        temp("processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/all.train.h5")
+    params:
+        data_path = "processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}"
+    shell:
+        """
+        set +u
+        source $HOME/.bashrc
+        conda activate prismnet
+        set -u
+
+        python -u ../../methods/PrismNet/generate_dataset.py all.train 1 5 {params.data_path}
+        """
+
+rule PRISMNet_train:
+    # conda: "../conda/PrismNet.conda.env.yml"
+    input:
+        all_h5 = "processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/all.train.h5"
+    output:
+        "processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/out/models/all.train_PrismNet_pu_best.pth",
+    params:
+        output_dir = "processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/",
+        #params = "../code/PrismNet/prismnet_params.json"
+    shell:
+        """
+        ./train.PRISMNet.sbatch.sh {params.output_dir}
+        """
+        # """
+        # set +u
+        # source $HOME/.bashrc
+        # conda activate prismnet
+        # set -u
+
+        # python -u ../../methods/PrismNet/main.py --train --eval --lr 0.001 --data_dir {params.output_dir} --p_name all.train --out_dir {params.output_dir} --early_stopping 20
+        # """
+
+
+

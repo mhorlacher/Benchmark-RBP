@@ -1,0 +1,83 @@
+gw = glob_wildcards('models/{DATASET}/fold-{FOLD}/negative-2/model.h5')
+
+rule ALL:
+    input:
+        expand('processed/{DATASET}/fold-{FOLD}/negative-2/results.csv', zip, DATASET=gw.DATASET, FOLD=gw.FOLD),
+        'processed/results.DeepRiPe.csv'
+
+rule predict:
+    input:
+        fasta = 'inputs/{DATASET}/fold-{FOLD}/input.fasta',
+        model = 'models/{DATASET}/fold-{FOLD}/negative-2/model.h5'
+    output:
+        results = 'processed/{DATASET}/fold-{FOLD}/negative-2/results.tmp.csv',
+    params:
+        sequence_length = 150
+    shell:
+        './predict.DeepRiPe.sbatch.sh {input.fasta} {input.model} {output.results} {params.sequence_length}'
+
+        # """
+        # set +u
+        # source $HOME/.bashrc
+        # conda activate multirbp-cpu
+        # set -u
+
+        # python -u scripts/eval.py --test-input {input.fasta} --model-file {input.model} --output-csv {output.results} --seq-len {params.sequence_length)}
+        # """
+
+# We create a dictionary of sample_id : rbps bound
+# e.g. chr1:1110-1210(+) : AGO1_UNKNOWN_PARCLIP,AGO2_UNKNOWN_PARCLIP,...
+# We need this later on when predicting (to know the ground truth)
+rule create_binding_info_dict:
+    input:
+        fasta = 'inputs/{DATASET}/fold-{FOLD}/input.fasta'
+        # Ex. >chr1:568914.0-568989.0(+) AGO1_HEK293_PARCLIP,AGO1_HEK293_PARCLIP
+    output:
+        id_rbps_dict = 'processed/{DATASET}/fold-{FOLD}/id_rbps_dict.json'
+    run:
+        import json
+
+        id_rbps_dict = {}
+        with open(input.fasta) as f_in:
+            for line in f_in:
+                if line.startswith(">"):
+                    id = line.strip().split(" ")[0][1:]
+                    rbps_string = line.strip().split(" ")[1]
+                    id_rbps_dict[id] = rbps_string
+
+        with open(output.id_rbps_dict, 'w') as f:
+            json.dump(id_rbps_dict, f)
+
+
+rule add_sample_type_col:
+    input:
+        results = 'processed/{DATASET}/fold-{FOLD}/negative-2/results.tmp.csv',
+        id_rbps_dict = 'processed/{DATASET}/fold-{FOLD}/id_rbps_dict.json'
+    output:
+        results = 'processed/{DATASET}/fold-{FOLD}/negative-2/results.csv'
+    run:
+        import json
+
+        with open(input.id_rbps_dict) as json_f:
+            id_rbps_dict = json.load(json_f)
+        # Format is method,dataset,name,fold#,model_type,sample_id,score(,sample_type)
+        with open(output.results, "w") as f_out:
+            with open(input.results) as f_in:
+                for line in f_in:
+                    name = line.strip().split(',')[2]
+                    sample_id = line.strip().split(',')[5]
+                    # Check if name in sample_id according to json_dict (truth)
+                    if name in id_rbps_dict[sample_id]: # Bound!
+                        sample_type = 'positive'
+                    else:
+                        sample_type = 'negative-2'
+                    
+                    print(','.join([line.strip(), sample_type]), file=f_out)
+
+rule aggregate_results:
+    input:
+        expand('processed/{DATASET}/fold-{FOLD}/negative-2/results.csv', zip, DATASET=gw.DATASET, FOLD=gw.FOLD)
+    output:
+        'processed/results.DeepRiPe-1.csv'
+    shell:
+        'cat {input} > {output}'

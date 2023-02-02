@@ -1,0 +1,134 @@
+gw = glob_wildcards('models/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/model.pkl')
+print('Number of models:', len(gw.NAME))
+exit()
+
+# TYPES = ['positive', 'negative-1', 'negative-2']
+
+rule ALL:
+    input:
+        expand('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/result.csv', zip, DATASET=gw.DATASET, NAME=gw.NAME, FOLD=gw.FOLD, NTYPE=gw.NTYPE),
+        'processed/results.DeepRAM.csv',
+
+rule fasta_to_tsv:
+    input:
+        fasta = 'inputs/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD}.UPPER.fasta'
+    output:
+        tsv = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.test.tsv'
+    # params:
+    #     label = lambda wc: '1' if wc.TYPE == 'positive' else '0'
+    shell:
+        'python scripts/fasta_to_tsv.py {input.fasta} -o {output.tsv}' # --label {params.label}
+
+rule assert_sequence_length:
+    input:
+        tsv = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.test.tsv'
+    output:
+        sequence_length_ok = 'processed/{DATASET}/{NAME}/fold-{FOLD}/.{TYPE}.test.tsv.sequence-length-ok'
+    params:
+        expected_sequence_length = 101
+    run:
+        with open(input.tsv) as f:
+            header = f.readline().strip()
+            for line in f:
+                sequence = line.strip()
+                assert len(sequence) == params.expected_sequence_length
+        shell(f'touch {output.sequence_length_ok}')
+
+rule tsv_to_gz:
+    input:
+        tsv = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.test.tsv',
+        sequence_length_ok = 'processed/{DATASET}/{NAME}/fold-{FOLD}/.{TYPE}.test.tsv.sequence-length-ok',
+    output:
+        tsv_gz = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.test.tsv.gz'
+    shell:
+        'gzip --stdout {input.tsv} > {output.tsv_gz}'
+
+rule DeepRAM_predict:
+    shadow:
+        'shallow'
+    input:
+        tsv_gz = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.test.tsv.gz',
+        model = 'models/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/model.pkl',
+        word2vec = 'models/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/word2vec',
+    output:
+        txt = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/{TYPE}.predictions.txt',
+        txt_bad_rows = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/{TYPE}.predictions.txt.bad-rows.txt',
+    shell:
+        """
+        ./predict.DeepRAM.sbatch.sh {input.tsv_gz} {input.model} {input.word2vec} {output.txt}
+        """
+
+        # """
+        # set +u
+        # source $HOME/.bashrc
+        # conda activate deepram
+        # set -u
+
+        # python deepRAM/deepRAM.py --data_type DNA --train False --test_data {input.tsv_gz}  --model_path {input.model} --word2vec_model {input.word2vec} --out_file {output.txt} --predict_only True --evaluate_performance False --Embedding True --Conv True --conv_layers 1 --RNN True --RNN_type BiLSTM
+        # """
+
+rule assert_predict_nrows:
+    input:
+        input_tsv = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.test.tsv',
+        predict_txt = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/{TYPE}.predictions.txt',
+        predict_txt_bad_rows = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/{TYPE}.predictions.txt.bad-rows.txt',
+    output:
+        predict_length_ok = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/{TYPE}.predictions.predict-length-ok'
+    run:
+        n_total = 0
+        with open(input.input_tsv) as f:
+            header = f.readline().strip()
+            for _ in f:
+                n_total += 1
+    
+        n_predict = 0
+        with open(input.predict_txt) as f:
+            for _ in f:
+                n_predict += 1
+                
+        n_bad = 0
+        with open(input.predict_txt_bad_rows) as f:
+            for _ in f:
+                n_bad += 1
+        
+        print('n_total:', n_total)
+        print('n_predict:', n_predict)
+        print('n_bad:', n_bad)
+
+        assert n_total == (n_predict + n_bad)
+                
+                
+        shell(f'touch {output.predict_length_ok}')
+
+
+rule compile_result:
+    input:
+        predictions = lambda wc: expand(f'processed/{wc.DATASET}/{wc.NAME}/fold-{wc.FOLD}/{wc.NTYPE}/{{TYPE}}.predictions.txt', TYPE=[wc.NTYPE, 'positive']),
+        predictions_length_ok = lambda wc: expand(f'processed/{wc.DATASET}/{wc.NAME}/fold-{wc.FOLD}/{wc.NTYPE}/{{TYPE}}.predictions.predict-length-ok', TYPE=[wc.NTYPE, 'positive']),
+    output:
+        result_csv = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/result.csv'
+    params:
+        DATASET = '{DATASET}',
+        NAME = '{NAME}',
+        FOLD = '{FOLD}',
+        NTYPE = '{NTYPE}',
+    run:
+        with open(output.result_csv, 'w') as f_out:
+            for pred in input.predictions:
+                with open(pred) as f_in:
+                    s_type = pred.split('/')[-1].split('.')[0]
+                    for i, line in enumerate(f_in):
+                        try:
+                            score = str(float(line.strip()))
+                        except:
+                            print(f'MALFORMED prediction for at line {i}, file {pred}. Skipping.')
+                            continue
+                        print(','.join(['DeepRAM', params.DATASET, params.NAME, params.FOLD, params.NTYPE, 'NA', score, s_type]), file=f_out)
+
+rule aggregate_results:
+    input:
+        expand('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/result.csv', zip, DATASET=gw.DATASET, NAME=gw.NAME, FOLD=gw.FOLD, NTYPE=gw.NTYPE)
+    output:
+        'processed/results.DeepRAM.csv'
+    shell:
+        'cat {input} > {output}'

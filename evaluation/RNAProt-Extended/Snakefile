@@ -1,0 +1,108 @@
+import json
+
+gw = glob_wildcards('models/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/final.model')
+print('Number of models:', len(gw.NAME))
+
+def load_info(info_json):
+    with open(info_json) as f:
+        return json.loads(f.read())
+
+DATASETS_INFO = dict()
+for dataset in list(set(gw.DATASET)):
+    DATASETS_INFO[dataset] = load_info(f'../../data/datasets/{dataset}/info.json')
+
+rule ALL:
+    input:
+        expand('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/result.csv', zip, DATASET=gw.DATASET, NAME=gw.NAME, FOLD=gw.FOLD, NTYPE=gw.NTYPE),
+        'processed/results.RNAProt-Extended.csv',
+
+# TYPE is either positive or negative
+rule RNAProt_prepare_data_unique_header:
+    input:
+        fasta = 'inputs/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD}.fasta'
+    output:
+        fasta = temp('processed/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD}.uniq-header.fasta')
+    run:
+        with open(output.fasta, 'w') as f_out, open(input.fasta) as f_in:
+            for i, line in enumerate(f_in):
+                if line[0] == '>':
+                    print(f'{line.strip()}:{i}', file=f_out)
+                else:
+                    print(line.strip().upper(), file=f_out)
+
+# 'features.out' is hardcoded in the tool, gotta play with directories
+rule RNAProt_prepare_data:
+    input:
+        fasta = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD}.uniq-header.fasta'
+    output:
+        # 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/{TYPE}.features.out'
+        'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/{TYPE}/features.out'
+    params:
+        out_dir = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/{TYPE}',
+        model_dir = 'models/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}',
+        annotation = lambda wc: f".meta/ensembl/{DATASETS_INFO[wc.DATASET]['genome']}/{DATASETS_INFO[wc.DATASET]['genome']}.gtf",
+        phastcons_scores = lambda wc: f"../../../meta/phastcons/{DATASETS_INFO[wc.DATASET]['genome']}/phastCons100way.bw",
+        phylop_scores = lambda wc: f"../../../meta/phastcons/{DATASETS_INFO[wc.DATASET]['genome']}/phyloP100way.bw",
+    shell:
+        """
+        set +u
+        source $HOME/.bashrc
+        conda activate rnaprotenv
+        set -u
+
+        rnaprot gp --in {input.fasta} --train-in {params.model_dir} --out {params.out_dir} --gtf {params.annotation} --phastcons {params.phastcons_scores} --phylop {params.phylop_scores}
+        """
+
+rule RNAProt_predict:
+    shadow:
+        'shallow'
+    input:
+        # 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/{TYPE}.features.out'
+        'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/{TYPE}/features.out'
+    output:
+        tsv = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/{TYPE}/whole_site_scores.tsv'
+    params:
+        # in_out_dir = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}',
+        in_out_dir = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/{TYPE}',
+        model_dir = 'models/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}',
+    shell:
+        """
+        set +u
+        source $HOME/.bashrc
+        conda activate rnaprotenv
+        set -u
+
+        rnaprot predict --in {params.in_out_dir} --train-in {params.model_dir} --mode 1 --out {params.in_out_dir}
+        """
+        # "./predict.RNAProt-Extended.sbatch.sh {params.in_out_dir} {params.model_dir}"
+
+rule RNAProt_compile_result:
+    input:
+        predictions = lambda wc: expand(f'processed/{wc.DATASET}/{wc.NAME}/fold-{wc.FOLD}/{wc.NTYPE}/{{TYPE}}/whole_site_scores.tsv', TYPE=[wc.NTYPE, 'positive'])
+    output:
+        result_csv = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/result.csv'
+    params:
+        DATASET = '{DATASET}',
+        NAME = '{NAME}',
+        FOLD = '{FOLD}',
+        NTYPE = '{NTYPE}',
+    run:
+        with open(output.result_csv, 'w') as f_out:
+            for pred in input.predictions:
+                with open(pred) as f_in:
+                    header = f_in.readline().strip().split('\t')
+                    # This slightly different due to output directory structure
+                    s_type = pred.split('/')[-2]
+                    for line in f_in:
+                        row = dict(zip(header, line.strip().split('\t')))
+                        sample_id = row['site_id']
+                        score = row['site_score']
+                        print(f'RNAProt-Extended,{params.DATASET},{params.NAME},{params.FOLD},{params.NTYPE},{sample_id},{score},{s_type}', file=f_out)
+
+rule aggregate_results:
+    input:
+        expand('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/result.csv', zip, DATASET=gw.DATASET, NAME=gw.NAME, FOLD=gw.FOLD, NTYPE=gw.NTYPE)
+    output:
+        'processed/results.RNAProt-Extended.csv'
+    shell:
+        'cat {input} > {output}'

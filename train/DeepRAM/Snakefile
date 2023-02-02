@@ -1,0 +1,79 @@
+gw = glob_wildcards('inputs/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD_2}.UPPER.fasta')
+# print(gw)
+# exit()
+
+FOLDS = [0,]
+NEGATIVES = ['negative-1', 'negative-2']
+
+rule ALL:
+    input:
+        expand(expand('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/model.pkl', zip, DATASET=gw.DATASET, NAME=gw.NAME, allow_missing=True), FOLD=FOLDS, NTYPE=NEGATIVES),
+
+
+def not_FOLD(fold):
+    return list(set(gw.FOLD).difference({fold}))
+
+rule compile_NEGATIVE_TRAIN:
+    input:
+        fasta = lambda wc: expand('inputs/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}.fold-{FOLD}.UPPER.fasta', FOLD=not_FOLD(wc.FOLD), allow_missing=True),
+    output:
+        fasta = temp('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/negative.train.fasta')
+    shell:
+        'cat {input.fasta} > {output.fasta}'
+
+rule compile_POSITIVE_TRAIN:
+    input:
+        fasta = lambda wc: expand('inputs/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD}.UPPER.fasta', FOLD=not_FOLD(wc.FOLD), allow_missing=True),
+    output:
+        fasta = temp('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/positive.train.fasta')
+    shell:
+        'cat {input.fasta} > {output.fasta}'
+
+rule DeepRAM_preprocess_TRAIN:
+    input:
+        positive = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/positive.train.fasta',
+        negative = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/negative.train.fasta',
+    output:
+        sequences_tsv = temp('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/fold-{FOLD}.train.sequences.tsv')
+    shell:
+        'python scripts/preprocess_sequences.py --positive {input.positive} --negative {input.negative} -o {output.sequences_tsv}'
+
+rule tsv_to_gz:
+    input:
+        sequences_tsv = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/fold-{FOLD}.train.sequences.tsv'
+    output:
+        sequences_gz = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/fold-{FOLD}.train.sequences.tsv.gz'
+    shell:
+        'gzip --stdout {input.sequences_tsv} > {output.sequences_gz}'
+
+rule touch_dummy_test_gz:
+    input:
+        sequences_tsv = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/fold-{FOLD}.train.sequences.tsv'
+    output:
+        dummy = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/fold-{FOLD}.dummy.tsv.gz'
+    shell:
+        "head -n 2 {input.sequences_tsv} | gzip --stdout - > {output.dummy}"
+        # "echo -e 'sequence\tlabel\n' | gzip --stdout - > {output.dummy}"
+
+rule DeepRAM_train:
+    shadow:
+        'shallow'
+    input:
+        sequences_gz = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/fold-{FOLD}.train.sequences.tsv.gz',
+        dummy = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/fold-{FOLD}.dummy.tsv.gz',
+    output:
+        model = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/model.pkl',
+        word2vec = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/word2vec',
+    shell:
+        """
+        ./train.DeepRAM.sbatch.sh {input.sequences_gz} {input.dummy} {output.model} {output.word2vec}
+        """
+
+        # """
+        # set +u
+        # source $HOME/.bashrc
+        # conda activate deepram
+        # set -u
+
+        # python deepRAM/deepRAM.py --data_type DNA --train True --train_data {input.sequences_gz} --test_data {input.dummy} --model_path {output.model} --word2vec_model {output.word2vec} --Embedding True --Conv True --conv_layers 1 --RNN True --RNN_type BiLSTM
+        # """

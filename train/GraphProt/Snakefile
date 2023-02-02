@@ -1,0 +1,50 @@
+gw = glob_wildcards('inputs/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD_2}.fasta')
+# print(gw)
+
+FOLDS = [0,]
+NEGATIVES = ['negative-1', 'negative-2']
+
+rule ALL:
+    input:
+        expand(expand('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/GraphProt.model', zip, DATASET=gw.DATASET, NAME=gw.NAME, allow_missing=True), FOLD=FOLDS, NTYPE=NEGATIVES),
+
+
+def not_FOLD(fold):
+    return list(set(gw.FOLD).difference({fold}))
+
+rule compile_NEGATIVE_TRAIN:
+    input:
+        fasta = lambda wc: expand('inputs/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}.fold-{FOLD}.fasta', FOLD=not_FOLD(wc.FOLD), allow_missing=True),
+    output:
+        fasta = temp('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/negative.train.fasta')
+    shell:
+        'cat {input.fasta} > {output.fasta}'
+
+rule compile_POSITIVE_TRAIN:
+    input:
+        fasta = lambda wc: expand('inputs/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD}.fasta', FOLD=not_FOLD(wc.FOLD), allow_missing=True),
+    output:
+        fasta = temp('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/positive.train.fasta')
+    shell:
+        'cat {input.fasta} > {output.fasta}'
+
+rule train:
+    input:
+        positive = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/positive.train.fasta',
+        negative = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/negative.train.fasta',
+    output:
+        model = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/GraphProt.model'
+    shadow:
+        'shallow'
+    shell:
+        './train.GraphProt.sbatch.sh {input.positive} {input.negative} {output.model}'
+
+        # """
+        # set +u
+        # source $HOME/.bashrc
+        # conda activate graphprot
+        # set -u
+
+        # GraphProt.pl --action train -fasta {input.positive} -negfasta {input.negative}
+        # mv ./GraphProt.model {output.model}
+        # """

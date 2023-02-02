@@ -1,0 +1,1 @@
+nohup snakemake -pr -j 100 --keep-going --latency-wait 60 > nohup.stderr-stdout 2>&1 &

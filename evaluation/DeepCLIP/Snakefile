@@ -1,0 +1,60 @@
+gw = glob_wildcards('models/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/model.pkl')
+print('Number of models:', len(gw.NAME))
+# exit()
+
+
+# TYPES = ['positive', 'negative-1', 'negative-2']
+
+rule ALL:
+    input:
+        expand('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/result.csv', zip, DATASET=gw.DATASET, NAME=gw.NAME, FOLD=gw.FOLD, NTYPE=gw.NTYPE),
+        'processed/results.DeepCLIP.csv',
+
+rule DeepCLIP_predict:
+    shadow:
+        'shallow'
+    input:
+        fasta = 'inputs/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD}.UPPER.fasta',
+        model = 'models/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/model.pkl',
+    output:
+        tsv = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/{TYPE}.predictions.tsv',
+    shell:
+        """
+        ./predict.DeepCLIP.sbatch.sh {input.model} {input.fasta} {output.tsv}
+        """
+
+        # """
+        # set +u
+        # source $HOME/.bashrc
+        # conda activate deepclip
+        # set -u
+
+        # python deepclip/DeepCLIP.py --runmode predict -P {input.model_fn} --sequences {input.fasta} --predict_output_file {output.tsv}
+        # """
+
+rule compile_result:
+    input:
+        predictions = lambda wc: expand(f'processed/{wc.DATASET}/{wc.NAME}/fold-{wc.FOLD}/{wc.NTYPE}/{{TYPE}}.predictions.tsv', TYPE=[wc.NTYPE, 'positive'])
+    output:
+        result_csv = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/result.csv'
+    params:
+        DATASET = '{DATASET}',
+        NAME = '{NAME}',
+        FOLD = '{FOLD}',
+        NTYPE = '{NTYPE}',
+    run:
+        with open(output.result_csv, 'w') as f_out:
+            for pred in input.predictions:
+                with open(pred) as f_in:
+                    s_type = pred.split('/')[-1].split('.')[0]
+                    for line in f_in:
+                        sample, seq, score = line.strip().split('\t')
+                        print(','.join(['DeepCLIP', params.DATASET, params.NAME, params.FOLD, params.NTYPE, sample, str(float(score)), s_type]), file=f_out)
+
+rule aggregate_results:
+    input:
+        expand('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/result.csv', zip, DATASET=gw.DATASET, NAME=gw.NAME, FOLD=gw.FOLD, NTYPE=gw.NTYPE)
+    output:
+        'processed/results.DeepCLIP.csv'
+    shell:
+        'cat {input} > {output}'

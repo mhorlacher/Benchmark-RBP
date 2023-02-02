@@ -1,0 +1,24 @@
+[submodule "modules/bert-rbp"]
+	path = modules/bert-rbp
+	url = https://github.com/kkyamada/bert-rbp.git
+[submodule "methods/iDeepS"]
+	path = methods/iDeepS
+	url = https://github.com/xypan1232/iDeepS.git
+[submodule "methods/iDeepS-Julian"]
+	path = methods/iDeepS-Julian
+	url = https://github.com/julianhesse/iDeepS.git
+[submodule "methods/GraphProt"]
+	path = methods/GraphProt
+	url = https://github.com/dmaticzka/GraphProt.git
+[submodule "methods/RNAProt"]
+	path = methods/RNAProt
+	url = https://github.com/BackofenLab/RNAProt.git
+[submodule "methods/deepRAM"]
+	path = methods/deepRAM
+	url = https://github.com/MedChaabane/deepRAM.git
+[submodule "methods/deepclip"]
+	path = methods/deepclip
+	url = https://github.com/deepclip/deepclip.git
+[submodule "methods/pysster"]
+	path = methods/pysster
+	url = https://github.com/budach/pysster.git

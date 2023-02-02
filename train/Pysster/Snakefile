@@ -1,0 +1,53 @@
+gw = glob_wildcards('inputs/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD_2}.UPPER.fasta')
+# print(gw)
+
+FOLDS = [0,]
+NEGATIVES = ['negative-1', 'negative-2']
+
+rule ALL:
+    input:
+        expand(expand('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/model.pkl.h5', zip, DATASET=gw.DATASET, NAME=gw.NAME, allow_missing=True), FOLD=FOLDS, NTYPE=NEGATIVES),
+
+
+def not_FOLD(fold):
+    folds = list(set(gw.FOLD).difference({fold}))
+    # print(f'Fold is {fold}, return folds {folds}.')
+    return folds
+
+rule compile_NEGATIVE_TRAIN:
+    input:
+        fasta = lambda wc: expand('inputs/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}.fold-{FOLD}.UPPER.fasta', FOLD=not_FOLD(wc.FOLD), allow_missing=True),
+    output:
+        fasta = temp('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/negative.train.fasta')
+    shell:
+        'cat {input.fasta} > {output.fasta}'
+
+rule compile_POSITIVE_TRAIN:
+    input:
+        fasta = lambda wc: expand('inputs/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD}.UPPER.fasta', FOLD=not_FOLD(wc.FOLD), allow_missing=True),
+    output:
+        fasta = temp('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/positive.train.fasta')
+    shell:
+        'cat {input.fasta} > {output.fasta}'
+
+rule train:
+    input:
+        positive = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/positive.train.fasta',
+        negative = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/negative.train.fasta',
+    output:
+        model = "processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/model.pkl.h5",
+    params:
+        model_params = config['model_params'],
+        seed = config['seed'],
+        out_dir = directory("processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/"),
+    shell:
+        """
+        set +u
+        source $HOME/.bashrc
+        conda activate pysster
+        set -u
+
+        python scripts/train_Pysster.py --params {params.model_params} --save-model-only -o {params.out_dir} --in-fasta {input.positive} {input.negative}
+        """
+        
+        # './train.Pysster.sbatch.sh {params.model_params} {params.out_dir} {input.positive} {input.negative}'

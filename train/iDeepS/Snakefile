@@ -1,0 +1,63 @@
+gw = glob_wildcards('inputs/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD_2}.UPPER.labeled.fasta')
+# print(gw)
+
+FOLDS = [0,]
+NEGATIVES = ['negative-1', 'negative-2']
+
+rule ALL:
+    input:
+        expand(expand('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/model.pkl', zip, DATASET=gw.DATASET, NAME=gw.NAME, allow_missing=True), FOLD=FOLDS, NTYPE=NEGATIVES),
+
+
+def not_FOLD(fold):
+    return list(set(gw.FOLD).difference({fold}))
+
+rule compile_NEGATIVE_TRAIN:
+    input:
+        fasta = lambda wc: expand('inputs/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}.fold-{FOLD}.UPPER.labeled.fasta', FOLD=not_FOLD(wc.FOLD), allow_missing=True),
+    output:
+        fasta = temp('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/negative.train.fasta')
+    shell:
+        'cat {input.fasta} > {output.fasta}'
+
+rule compile_POSITIVE_TRAIN:
+    input:
+        fasta = lambda wc: expand('inputs/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD}.UPPER.labeled.fasta', FOLD=not_FOLD(wc.FOLD), allow_missing=True),
+    output:
+        fasta = temp('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/positive.train.fasta')
+    shell:
+        'cat {input.fasta} > {output.fasta}'
+
+rule concat_and_gzip_train:
+    input:
+        positive = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/positive.train.fasta',
+        negative = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/negative.train.fasta',
+    output:
+        train_fa_gz = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/train.fa.gz'
+    shell:
+        'cat {input.positive} {input.negative} | gzip --stdout > {output.train_fa_gz}'
+
+rule iDeepS_train:
+    shadow:
+        'shallow'
+    input:
+        train_fa_gz = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/train.fa.gz'
+    output:
+        model = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/model.pkl'
+    # params:
+    #     model_dir = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/'
+    shell:
+        """
+        ./train.iDeepS.sbatch.sh {input.train_fa_gz} {output.model}
+        """
+
+        # """
+        # set +u
+        # source $HOME/.bashrc
+        # conda activate ideeps
+        # set -u
+
+        # cp {input.train_fa_gz} sequences.fa.gz
+
+        # python iDeepS/ideeps.py --train=True --data_file=sequences.fa.gz --model_dir={params.model_dir}
+        # """

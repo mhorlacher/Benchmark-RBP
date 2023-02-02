@@ -1,0 +1,93 @@
+gw = glob_wildcards('models/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/final.model')
+
+
+rule ALL:
+    input:
+        # expand('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/results.csv', zip, DATASET=gw.DATASET, NAME=gw.NAME, FOLD=gw.FOLD, NTYPE=gw.NTYPE)
+        #expand('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/negatives.fa', zip, DATASET=gw.DATASET, NAME=gw.NAME, FOLD=gw.FOLD, NTYPE=gw.NTYPE),
+        expand('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/results.csv', zip, DATASET=gw.DATASET, NAME=gw.NAME, FOLD=gw.FOLD, NTYPE=gw.NTYPE),
+
+
+# rule predict:
+#     input:
+#         negative = 'inputs/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}.fold-{FOLD}.fasta',
+#         positive = 'inputs/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD}.fasta',
+#     output:
+#         pass
+
+rule RNAProt_prepare_data_unique_header:
+    input:
+        fasta = 'inputs/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD}.fasta'
+    output:
+        fasta = temp('processed/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD}.uniq-header.fasta')
+    run:
+        with open(output.fasta, 'w') as f_out, open(input.fasta) as f_in:
+            for i, line in enumerate(f_in):
+                if line[0] == '>':
+                    print(f'{line.strip()}:{i}', file=f_out)
+                else:
+                    print(line.strip().upper(), file=f_out)
+
+rule concat_test_data:
+    input:
+        negative = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}.fold-{FOLD}.uniq-header.fasta',
+        positive = 'processed/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD}.uniq-header.fasta',
+    output:
+        test_fasta = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/test.fa'
+    shell:
+        'cat {input.negative} {input.positive} > {output.test_fasta}'
+
+rule RNAProt_prepare_data:
+    input:
+        test_fasta = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/test.fa'
+    output:
+        'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/features.out'
+    params:
+        out_dir = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}',
+        model_dir = 'models/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}',
+    shell:
+        """
+        set +u
+        source $HOME/.bashrc
+        conda activate rnaprot
+        set -u
+
+        rnaprot gp --in {input.test_fasta} --train-in {params.model_dir} --out {params.out_dir}
+        """
+
+rule RNAProt_predict:
+    input:
+        'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/features.out'
+    output:
+        tsv = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/whole_site_scores.tsv'
+    params:
+        in_out_dir = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}',
+        model_dir = 'models/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}',
+    shell:
+        """
+        set +u
+        source $HOME/.bashrc
+        conda activate rnaprot
+        set -u
+
+        rnaprot predict --in {params.in_out_dir} --train-in {params.model_dir} --mode 1 --out {params.in_out_dir}
+        """
+
+rule RNAProt_format_predictions:
+    input:
+        tsv = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/whole_site_scores.tsv'
+    output:
+        csv = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/results.csv'
+    params:
+        DATASET = '{DATASET}',
+        NAME = '{NAME}',
+        FOLD = '{FOLD}',
+        NTYPE = '{NTYPE}',
+    run:
+        with open(input.tsv) as f_in, open(output.csv, 'w') as f_out:
+            header = f_in.readline().strip().split('\t')
+            for line in f_in:
+                row = dict(zip(header, line.strip().split('\t')))
+                sample_id = row['site_id']
+                score = row['site_score']
+                print(f'RNAProt,{params.DATASET},{params.NAME},{params.FOLD},{params.NTYPE},{sample_id},{score}', file=f_out)

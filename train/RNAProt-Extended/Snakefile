@@ -1,0 +1,101 @@
+gw = glob_wildcards('inputs/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD_2}.fasta')
+# print(gw)
+
+FOLDS = [0, ]
+NEGATIVES = ['negative-1', 'negative-2']
+
+rule ALL:
+    input:
+        expand(expand('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/final.model', zip, DATASET=gw.DATASET, NAME=gw.NAME, allow_missing=True), FOLD=FOLDS, NTYPE=NEGATIVES),
+
+def load_info(info_json):
+    with open(info_json) as f:
+        return json.loads(f.read())
+
+DATASETS = list(set(gw.DATASET))
+DATASETS_INFO = dict()
+for dataset in DATASETS:
+    DATASETS_INFO[dataset] = {**load_info(f'datasets/{dataset}/info.json'), 'names': []}
+for dataset, name in zip(gw.DATASET, gw.NAME):
+    DATASETS_INFO[dataset]['names'].append(name)
+
+def not_FOLD(fold):
+    return list(set(gw.FOLD).difference({fold}))
+
+rule RNAProt_compile_NEGATIVE_TRAIN:
+    input:
+        fasta = lambda wc: expand('inputs/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}.fold-{FOLD}.fasta', FOLD=not_FOLD(wc.FOLD), allow_missing=True), 
+        # fasta = lambda wc: expand('inputs-example/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}.fold-{FOLD}.fasta', FOLD=not_FOLD(wc.FOLD), allow_missing=True), # TODO
+
+    output:
+        fasta = temp('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/negative.train.fasta')
+    shell:
+        'cat {input.fasta} > {output.fasta}'
+
+rule RNAProt_compile_POSITIVE_TRAIN:
+    input:
+        fasta = lambda wc: expand('inputs/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD}.fasta', FOLD=not_FOLD(wc.FOLD), allow_missing=True),
+        # fasta = lambda wc: expand('inputs-example/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD}.fasta', FOLD=not_FOLD(wc.FOLD), allow_missing=True), # TODO
+    output:
+        fasta = temp('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/positive.train.fasta')
+    shell:
+        'cat {input.fasta} > {output.fasta}'
+
+rule RNAProt_prepare_data_unique_header:
+    input:
+        fasta = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/{NEG_POS}.train.fasta'
+    output:
+        fasta = temp('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/{NEG_POS}.train.uniq-header.fasta')
+    run:
+        with open(output.fasta, 'w') as f_out, open(input.fasta) as f_in:
+            for i, line in enumerate(f_in):
+                if line[0] == '>':
+                    print(f'{line.strip()}:{i}', file=f_out)
+                else:
+                    print(line.strip(), file=f_out)
+
+rule RNAProt_prepare_data:
+    input:
+        positive = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/positive.train.uniq-header.fasta',
+        negative = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/negative.train.uniq-header.fasta',
+    output:
+        positive = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/positives.fa',
+        negative = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/negatives.fa',
+        features_file = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/features.out'
+    params:
+        phastcons_scores = lambda wc: f"../../../meta/phastcons/{DATASETS_INFO[wc.DATASET]['genome']}/phastCons100way.bw",
+        phylop_scores = lambda wc: f"../../../meta/phastcons/{DATASETS_INFO[wc.DATASET]['genome']}/phyloP100way.bw",
+        out_dir = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}'
+    shell:
+        """
+        set +u
+        source $HOME/.bashrc
+        conda activate rnaprotenv
+        set -u
+
+        rnaprot gt --in {input.positive} --neg-in {input.negative} --eia --phastcons {params.phastcons_scores} --phylop {params.phylop_scores} --out {params.out_dir} --report && [[ -s {output.features_file} ]]
+        """
+
+rule RNAProt_train:
+    input:
+        positive = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/positives.fa',
+        negative = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/negatives.fa',
+    output:
+        model = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/final.model'
+    params:
+        out_dir = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}'
+    shell:
+        """
+        ./train.RNAProt-Extended.sbatch.sh {params.out_dir}
+        """
+        # """
+        # set +u
+        # source $HOME/.bashrc
+        # conda activate rnaprotenv
+        # set -u
+
+        # rnaprot train --in {params.out_dir} --out {params.out_dir} --use-eia --use-phastcons --use-phylop --verbose-train
+        # """
+
+
+

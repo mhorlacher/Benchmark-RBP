@@ -1,0 +1,59 @@
+# gw = glob_wildcards('inputs/{DATASET}/fold-{FOLD}/{TYPE}.fold-{FOLD_2}.fasta') # Could change and call input -> positive
+gw = glob_wildcards('inputs/{DATASET}/fold-{FOLD}/input.fasta', followlinks=True)
+
+# print(gw)
+
+FOLDS = [0,]
+# NEGATIVES = ['negative-1', 'negative-2']
+
+rule ALL:
+    input:
+        expand(expand('processed/{DATASET}/fold-{FOLD}/negative-2/model.h5', zip, DATASET=gw.DATASET, allow_missing=True), FOLD=FOLDS),
+#        expand(expand('processed/{DATASET}/fold-{FOLD}/input.train.fasta', zip, DATASET=gw.DATASET, allow_missing=True), FOLD=FOLDS),
+
+
+def not_FOLD(fold):
+    return list(set(gw.FOLD).difference({fold}))
+
+# rule compile_NEGATIVE_TRAIN:
+#     input:
+#         fasta = lambda wc: expand('inputs/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}.fold-{FOLD}.UPPER.fasta', FOLD=not_FOLD(wc.FOLD), allow_missing=True),
+#     output:
+#         fasta = temp('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/negative.train.fasta')
+#     shell:
+#         'cat {input.fasta} > {output.fasta}'
+
+# rule compile_POSITIVE_TRAIN:
+#     input:
+#         fasta = lambda wc: expand('inputs/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD}.UPPER.fasta', FOLD=not_FOLD(wc.FOLD), allow_missing=True),
+#     output:
+#         fasta = temp('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/positive.train.fasta')
+#     shell:
+#         'cat {input.fasta} > {output.fasta}'
+
+rule compile_INPUT_TRAIN:
+    input:
+        fasta = lambda wc: expand('inputs/{DATASET}/fold-{FOLD}/input.fasta', FOLD=not_FOLD(wc.FOLD), allow_missing=True),
+    output:
+        fasta = 'processed/{DATASET}/fold-{FOLD}/input.train.fasta'
+    shell:
+        'cat {input.fasta} > {output.fasta}'
+
+rule train:
+    input:
+        fasta = 'processed/{DATASET}/fold-{FOLD}/input.train.fasta'
+    output:
+        model = "processed/{DATASET}/fold-{FOLD}/negative-2/model.h5",
+    params:
+        out_dir = "processed/{DATASET}/fold-{FOLD}"
+    shell:
+        './train.MultiRBP.sbatch.sh {input.fasta} {params.out_dir}'
+        
+        # """
+        # set +u
+        # source $HOME/.bashrc
+        # conda activate multirbp-cpu
+        # set -u
+
+        # python scripts/train_multirbp.py --train-input {input.fasta} --output-folder-name {params.out_dir}
+        # """

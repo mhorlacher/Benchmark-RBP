@@ -1,0 +1,49 @@
+import numpy as np
+
+gw = glob_wildcards('models/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/pytorch_model.bin')
+print('Number of models:', len(gw.NAME))
+# exit()
+
+rule ALL:
+    input:
+        expand('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/result.csv', zip, DATASET=gw.DATASET, NAME=gw.NAME, FOLD=gw.FOLD, NTYPE=gw.NTYPE),
+        'processed/results.BERT-RBP.csv',
+
+rule BERTRBP_predict:
+    input:
+        fasta = 'inputs/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD}.tokenized.tsv',
+        model = 'models/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/pytorch_model.bin',
+    output:
+        pred_npy = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/{TYPE}.pred_results.npy'
+    params:
+        model_dir = 'models/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/'
+    shadow:
+        'shallow'
+    shell:
+        './predict.BERT-RBP.sbatch.sh {input.fasta} {params.model_dir} {output.pred_npy}'
+
+rule compile_result:
+    input:
+        predictions = lambda wc: expand(f'processed/{wc.DATASET}/{wc.NAME}/fold-{wc.FOLD}/{wc.NTYPE}/{{TYPE}}.pred_results.npy', TYPE=[wc.NTYPE, 'positive'])
+    output:
+        result_csv = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/result.csv'
+    params:
+        DATASET = '{DATASET}',
+        NAME = '{NAME}',
+        FOLD = '{FOLD}',
+        NTYPE = '{NTYPE}',
+    run:
+        with open(output.result_csv, 'w') as f_out:
+            for pred in input.predictions:
+                npy = np.load(pred)
+                s_type = pred.split('/')[-1].split('.')[0]
+                for score in npy:
+                    print(','.join(['BERT-RBP', params.DATASET, params.NAME, params.FOLD, params.NTYPE, 'NA', str(float(score)), s_type]), file=f_out)
+
+rule aggregate_results:
+    input:
+        expand('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/result.csv', zip, DATASET=gw.DATASET, NAME=gw.NAME, FOLD=gw.FOLD, NTYPE=gw.NTYPE)
+    output:
+        'processed/results.BERT-RBP.csv'
+    shell:
+        'cat {input} > {output}'

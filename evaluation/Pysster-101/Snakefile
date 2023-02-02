@@ -1,0 +1,50 @@
+gw = glob_wildcards('models/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/model.pkl.h5')
+print('Number of models:', len(gw.NAME))
+# exit()
+
+
+rule ALL:
+    input:
+        expand('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/result.csv', zip, DATASET=gw.DATASET, NAME=gw.NAME, FOLD=gw.FOLD, NTYPE=gw.NTYPE),
+        'processed/results.Pysster-101.csv',
+
+
+rule Pysster_predict:
+    shadow:
+        'shallow'
+    input:
+        model = 'models/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/model.pkl',
+        fasta = 'inputs/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD}.UPPER.fasta',
+    output:
+        txt = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/{TYPE}.predictions.txt'
+    params:
+        model_dir = 'models/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/'
+    shell:
+        './predict.Pysster.sbatch.sh {input.fasta} {input.model} {output.txt}'
+
+rule compile_result:
+    input:
+        predictions = lambda wc: expand(f'processed/{wc.DATASET}/{wc.NAME}/fold-{wc.FOLD}/{wc.NTYPE}/{{TYPE}}.predictions.txt', TYPE=[wc.NTYPE, 'positive'])
+    output:
+        result_csv = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/result.csv'
+    params:
+        DATASET = '{DATASET}',
+        NAME = '{NAME}',
+        FOLD = '{FOLD}',
+        NTYPE = '{NTYPE}',
+    run:
+        with open(output.result_csv, 'w') as f_out:
+            for pred in input.predictions:
+                with open(pred) as f_in:
+                    s_type = pred.split('/')[-1].split('.')[0]
+                    for line in f_in:
+                        score = str(float(line.strip()))
+                        print(','.join(['Pysster-101', params.DATASET, params.NAME, params.FOLD, params.NTYPE, 'NA', score, s_type]), file=f_out)
+
+rule aggregate_results:
+    input:
+        expand('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/result.csv', zip, DATASET=gw.DATASET, NAME=gw.NAME, FOLD=gw.FOLD, NTYPE=gw.NTYPE),
+    output:
+        'processed/results.Pysster-101.csv'
+    shell:
+        'cat {input} > {output}'

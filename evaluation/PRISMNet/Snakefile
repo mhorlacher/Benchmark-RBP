@@ -1,0 +1,143 @@
+gw = glob_wildcards('models/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/out/models/all.train_PrismNet_pu_best.pth')
+print('Number of models:', len(gw.NAME))
+# print(gw)
+
+rule ALL:
+    input:
+        expand('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/result.csv', zip, DATASET=gw.DATASET, NAME=gw.NAME, FOLD=gw.FOLD, NTYPE=gw.NTYPE),
+        'processed/results.PRISMNet.csv'
+
+# We don't concat anymore, but we predict separately on positives and negatives
+# rule PRISMNet_concat_test_data:
+#     input:
+#         negative = 'inputs/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}.fold-{FOLD}.tsv',
+#         positive = 'inputs/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD}.tsv',
+#     output:
+#         test_tsv = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/test.tsv'
+#     shell:
+#         'cat {input.negative} {input.positive} > {output.test_tsv}'
+
+        
+# # Collect ids from .fasta/.bed to have them in the final results file
+# rule PRISMNet_collect_sample_ids:
+#     input:
+#         negative = 'inputs/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}.fold-{FOLD}.fasta',
+#         positive = 'inputs/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD}.fasta',
+#     output:
+#         ids_tsv = temp('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/sample_ids.tsv') 
+#     shell:
+#         """
+#         sed -n 'p;n' {input.negative} > {output.ids_tsv}
+#         sed -n 'p;n' {input.positive} >> {output.ids_tsv}
+#         """
+
+# Collect ids from .fasta/.bed to have them in the final results file
+# TODO Refactor rule by TYPE
+rule PRISMNet_collect_sample_ids:
+    input:
+        negative = 'inputs/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}.fold-{FOLD}.fasta',
+        positive = 'inputs/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD}.fasta',
+    output:
+        negative_ids = temp('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/{NTYPE}.sample_ids.tsv'),
+        positive_ids = temp('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/positive.sample_ids.tsv'),
+    shell:
+        """
+        sed -n 'p;n' {input.negative} > {output.negative_ids}
+        sed -n 'p;n' {input.positive} > {output.positive_ids}
+        """
+
+# We predict separately on negatives and positives
+# PrismNet runs inference directly on .tsv files
+rule PRISMNet_predict:
+    input:
+        'inputs/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD}.tsv',
+    output:
+        'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/{TYPE}.train_PrismNet_pu_best.probs'
+    params:
+        in_out_dir = 'models/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}',
+        tmp_output = 'models/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/out/infer/all.train_PrismNet_pu_{TYPE}.fold-{FOLD}.tsv.probs'
+        # Ex. PrismNet output: models/ENCODE/ZNF800_HepG2/fold-0/negative-2/out/infer/all.train_PrismNet_pu_negative-2.fold-0.tsv.probs
+    shell:
+        './predict.PRISMNet.sbatch.sh {input} {params.in_out_dir} {params.tmp_output} {output}'
+
+        # """
+        # set +u
+        # source $HOME/.bashrc
+        # conda activate prismnet
+        # set -u
+
+        # python -u ../../methods/PrismNet/main.py --load_best --infer --infer_file {input} --p_name all.train --out_dir {params.in_out_dir}
+
+        # # Fix: PrismNet main.py automatically writes model and infer data to the same location
+        # # but we want results under processed/ not models/
+        # cp {params.tmp_output} {output}
+        # """
+
+
+# rule PRISMNet_predict:
+#     input:
+#         'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/test.tsv'
+#     output:
+#         'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/all.train_PrismNet_pu_best.probs'
+#     params:
+#         in_out_dir = 'models/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}',
+#         tmp_output = 'models/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/out/infer/all.train_PrismNet_pu_test.tsv.probs'
+#     shell:
+#         """
+#         set +u
+#         source $HOME/.bashrc
+#         conda activate prismnet
+#         set -u
+
+#         python -u ../../methods/PrismNet/main.py --load_best --infer --infer_file {input} --p_name all.train --out_dir {params.in_out_dir}
+
+#         # Fix: PrismNet main.py automatically writes model and infer data to the same location
+#         cp {params.tmp_output} {output}
+#         """
+
+rule PRISMNet_add_sample_ids:
+    input:
+        probs = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/{TYPE}.train_PrismNet_pu_best.probs',
+        ids = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/{TYPE}.sample_ids.tsv'
+    output:
+        w_sample_ids = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/{TYPE}.predictions.tsv'
+    shell:
+        'python scripts/add_sample_ids.py --input_ids {input.ids} --input_probs {input.probs} --output_csv {output.w_sample_ids}'
+
+
+rule PRISMNet_compile_result:
+    input:
+        probs = lambda wc: expand(f'processed/{wc.DATASET}/{wc.NAME}/fold-{wc.FOLD}/{wc.NTYPE}/{{TYPE}}.predictions.tsv', TYPE=[wc.NTYPE, 'positive'])
+    output:
+        csv = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/result.csv'
+    params:
+        DATASET = '{DATASET}',
+        NAME = '{NAME}',
+        FOLD = '{FOLD}',
+        NTYPE = '{NTYPE}',    
+    shell: # Moved to a self-contained script due to bug in snakemake < 7.15
+        "python scripts/format_predictions.py --input_probs {input.probs} --output_csv {output.csv} --params {params}"
+
+
+# rule PRISMNet_format_predictions:
+#     input:
+#         tsv = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/sample_ids.tsv',
+#         probs = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/all.train_PrismNet_pu_best.probs'
+#     output:
+#         csv = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/results.csv'
+#     params:
+#         DATASET = '{DATASET}',
+#         NAME = '{NAME}',
+#         FOLD = '{FOLD}',
+#         NTYPE = '{NTYPE}',    
+#     shell: # Moved to a self-contained script due to bug in snakemake < 7.15
+#         "python scripts/format_predictions.py --input_tsv {input.tsv} --input_probs {input.probs} --output_csv {output.csv} --params {params}"
+
+
+rule aggregate_results:
+    input:
+        expand('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/result.csv', zip, DATASET=gw.DATASET, NAME=gw.NAME, FOLD=gw.FOLD, NTYPE=gw.NTYPE)
+    output:
+        'processed/results.PRISMNet.csv'
+    shell:
+        'cat {input} > {output}'

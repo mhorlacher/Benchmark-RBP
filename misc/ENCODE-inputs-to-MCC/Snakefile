@@ -1,0 +1,29 @@
+
+RBP_CELLS = glob_wildcards(config['positive_inputs']).RBP_CELL
+
+rule all:
+    input:
+        expand("processed/{RBP_CELL}/train.fasta", RBP_CELL=RBP_CELLS, SET=['train', 'test'])
+
+
+#############
+### Rules ###
+#############
+
+rule make_MCC_train:
+    input:
+        expand(config['positive_inputs'], FOLD=config['train_folds'], allow_missing=True)
+    output:
+        "processed/{RBP_CELL}/train.fasta"
+    shell:
+        "cat {input} > {output}"
+
+rule make_MCC_test:
+    input:
+        expand(config['positive_inputs'], FOLD=config['test_folds'], allow_missing=True)
+    output:
+        "processed/{RBP_CELL}/test.fasta"
+    shell:
+        "cat {input} > {output}"
+
+

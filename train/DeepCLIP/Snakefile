@@ -1,0 +1,57 @@
+gw = glob_wildcards('inputs/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD_2}.UPPER.fasta')
+# print(gw)
+
+FOLDS = [0,]
+NEGATIVES = ['negative-1', 'negative-2']
+
+rule ALL:
+    input:
+        expand(expand("processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/model.pkl", zip, DATASET=gw.DATASET, NAME=gw.NAME, allow_missing=True), FOLD=FOLDS, NTYPE=NEGATIVES),
+
+
+def not_FOLD(fold):
+    return list(set(gw.FOLD).difference({fold}))
+
+rule compile_NEGATIVE_TRAIN:
+    input:
+        fasta = lambda wc: expand('inputs/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}.fold-{FOLD}.UPPER.fasta', FOLD=not_FOLD(wc.FOLD), allow_missing=True),
+    output:
+        fasta = temp('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/negative.train.fasta')
+    shell:
+        'cat {input.fasta} > {output.fasta}'
+
+rule compile_POSITIVE_TRAIN:
+    input:
+        fasta = lambda wc: expand('inputs/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD}.UPPER.fasta', FOLD=not_FOLD(wc.FOLD), allow_missing=True),
+    output:
+        fasta = temp('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/positive.train.fasta')
+    shell:
+        'cat {input.fasta} > {output.fasta}'
+
+rule train:
+    shadow:
+        'shallow'
+    input:
+        positive = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/positive.train.fasta',
+        negative = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/negative.train.fasta',
+    output:
+        model = "processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/model.pkl",
+    params:
+        model_fn = "processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/model.prediction_function.pkl",
+    shell:
+        """
+        ./train.DeepCLIP.sbatch.NO-MODEL-FN.sh {output.model} {params.model_fn} {input.positive} {input.negative}
+        """
+    
+        # """
+        # ./train.DeepCLIP.sbatch.sh {output.model} {params.model_fn} {input.positive} {input.negative}
+        # """
+
+        # """
+        # set +u
+        # source $HOME/.bashrc
+        # conda activate deepclip
+        # set -u
+
+        # python deepclip/DeepCLIP.py --runmode train --data_split 0.90 0.099 0.001 -n {output.model} -P {output.model_fn} --sequences {input.positive} --background_sequences {input.negative} --num_epochs 200 --early_stopping 20
+        # """

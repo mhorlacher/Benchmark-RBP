@@ -1,0 +1,72 @@
+gw = glob_wildcards('models/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/model.pkl')
+print('Number of models:', len(gw.NAME))
+# exit()
+
+
+# TYPES = ['positive', 'negative-1', 'negative-2']
+
+rule ALL:
+    input:
+        expand('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/result.csv', zip, DATASET=gw.DATASET, NAME=gw.NAME, FOLD=gw.FOLD, NTYPE=gw.NTYPE),
+        'processed/results.iDeepS.csv',
+
+rule gzip:
+    input:
+        fasta = 'inputs/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD}.UPPER.labeled.fasta',
+    output:
+        fasta_gz = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.test.fa.gz',
+    shell:
+        'gzip {input.fasta} --stdout > {output.fasta_gz}'
+
+rule iDeepS_predict:
+    shadow:
+        'shallow'
+    input:
+        model = 'models/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/model.pkl',
+        fasta_gz = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.test.fa.gz',
+    output:
+        txt = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/{TYPE}.predictions.txt'
+    params:
+        model_dir = 'models/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/'
+    shell:
+        './predict.iDeepS.sbatch.sh {input.fasta_gz} {input.model} {output.txt}'
+
+        # """
+        # set +u
+        # source $HOME/.bashrc
+        # conda activate ideeps
+        # set -u
+
+        # cp {input.fasta_gz} sequences.fa.gz
+        # cp {input.model} model.pkl
+
+        # python iDeepS/ideeps.py --predict=True --data_file=sequences.fa.gz --model_dir=./ --out_file=predictions.txt
+        # cp predictions.txt $3
+        # """
+
+rule compile_result:
+    input:
+        predictions = lambda wc: expand(f'processed/{wc.DATASET}/{wc.NAME}/fold-{wc.FOLD}/{wc.NTYPE}/{{TYPE}}.predictions.txt', TYPE=[wc.NTYPE, 'positive'])
+    output:
+        result_csv = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/result.csv'
+    params:
+        DATASET = '{DATASET}',
+        NAME = '{NAME}',
+        FOLD = '{FOLD}',
+        NTYPE = '{NTYPE}',
+    run:
+        with open(output.result_csv, 'w') as f_out:
+            for pred in input.predictions:
+                with open(pred) as f_in:
+                    s_type = pred.split('/')[-1].split('.')[0]
+                    for line in f_in:
+                        score = str(float(line.strip()))
+                        print(','.join(['iDeepS', params.DATASET, params.NAME, params.FOLD, params.NTYPE, 'NA', score, s_type]), file=f_out)
+
+rule aggregate_results:
+    input:
+        expand('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/result.csv', zip, DATASET=gw.DATASET, NAME=gw.NAME, FOLD=gw.FOLD, NTYPE=gw.NTYPE)
+    output:
+        'processed/results.iDeepS.csv'
+    shell:
+        'cat {input} > {output}'
