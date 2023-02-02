@@ -1,0 +1,6 @@
+raw: 'raw'
+
+transcripts: "../../meta/gencode.v35/gencode.v35.annotation.gene.RNAs.bed"
+
+n_peaks: 20_000
+min_FC: 2.0

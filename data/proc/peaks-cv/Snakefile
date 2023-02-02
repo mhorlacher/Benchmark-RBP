@@ -1,0 +1,91 @@
+import json
+
+gw = glob_wildcards('datasets/{DATASET}/processed/{NAME}/peaks.crosslink.bed')
+
+def load_info(info_json):
+    with open(info_json) as f:
+        return json.loads(f.read())
+
+DATASETS = list(set(gw.DATASET))
+DATASETS_INFO = dict()
+for dataset in DATASETS:
+    DATASETS_INFO[dataset] = load_info(f'datasets/{dataset}/info.json')
+
+FOLDS = list(range(config['cv_folds']))
+
+# ### Functions ###
+# def generate_dataset_experiment_blueprints(datasets, experiments):
+#     blueprint = "processed/{DATASET}/{EXPERIMENT}/fold-{{FOLD}}/peaks.crosslink.fold-{{FOLD}}.bed"
+#     return [blueprint.format(DATASET=d, EXPERIMENT=e) for d, e in zip(datasets, experiments)]
+
+# dataset_experiment_blueprints = generate_dataset_experiment_blueprints(DATASETS, EXPERIMENTS)
+# #print(dataset_experiment_blueprints)
+
+
+### All Rule ###
+rule ALL:
+    input:
+        'processed/.done'
+
+rule DONE:
+    input:
+        # CV Transcripts
+        expand(set([f"processed/.split/gencode.{d['gencode']}/{d['genome']}/transcripts.fold-{{FOLD}}.bed" for d in DATASETS_INFO.values()]), FOLD=FOLDS), 
+        # CV Peaks
+        expand(expand("processed/{DATASET}/{NAME}/fold-{FOLD}/peaks.crosslink.fold-{FOLD}.bed", zip, DATASET=gw.DATASET, NAME=gw.NAME, allow_missing=True), FOLD=FOLDS)
+    output:
+        'processed/.done'
+    shell:
+        'touch processed/.done'
+
+##############################
+### Process CV Transcripts ###
+##############################
+
+rule merge_transcripts:
+    input:
+        bed = 'meta/gencode/processed/{GENCODE}/{GENOME}/gencode.{GENCODE}.{GENOME}.basic.annotation.transcripts.bed'
+    output:
+        bed = temp("processed/.split/gencode.{GENCODE}/{GENOME}/transcripts.merged.bed")
+    shell:
+        "bedtools merge -s -c 4,5,6 -o collapse,distinct,distinct -delim ';' -i {input.bed} | sort --random-sort > {output.bed}"
+
+rule shuffle_transcripts:
+    input:
+        bed = "processed/.split/gencode.{GENCODE}/{GENOME}/transcripts.merged.bed"
+    output:
+        bed = temp("processed/.split/gencode.{GENCODE}/{GENOME}/transcripts.merged.shuffled.bed")
+    shell:
+        "cat {input.bed} | sort --random-sort > {output.bed}"
+
+rule split_transcripts:
+    input:
+        bed = "processed/.split/gencode.{GENCODE}/{GENOME}/transcripts.merged.shuffled.bed"
+    output:
+        beds = expand("processed/.split/gencode.{GENCODE}/{GENOME}/transcripts.fold-{FOLD}.bed", FOLD=FOLDS, allow_missing=True)
+    params:
+        prefix = "processed/.split/gencode.{GENCODE}/{GENOME}/transcripts.fold-",
+        cv_folds = config['cv_folds'],
+    shell:
+        "python code/split_bed.py --prefix {params.prefix} -n {params.cv_folds} {input.bed}"
+
+
+
+###################
+### Split Peaks ###
+###################
+
+rule split_peaks_crosslink:
+    input:
+        transcript_fold = lambda wc: f"processed/.split/gencode.{DATASETS_INFO[wc.DATASET]['gencode']}/{DATASETS_INFO[wc.DATASET]['genome']}/transcripts.fold-{{FOLD}}.bed",
+        peaks_crosslink = 'datasets/{DATASET}/processed/{NAME}/peaks.crosslink.bed',
+    output:
+        bed = "processed/{DATASET}/{NAME}/fold-{FOLD}/peaks.crosslink.fold-{FOLD}.bed"
+    shell:
+        "bedtools intersect -u -s -wa -a {input.peaks_crosslink} -b {input.transcript_fold} > {output.bed}"
+    
+
+
+
+
+

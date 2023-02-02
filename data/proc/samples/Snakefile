@@ -1,0 +1,169 @@
+import json
+
+gw = glob_wildcards('peaks-cv/{DATASET}/{NAME}/fold-{FOLD}/peaks.crosslink.fold-{FOLD_2}.bed')
+
+def load_info(info_json):
+    with open(info_json) as f:
+        return json.loads(f.read())
+
+DATASETS = list(set(gw.DATASET))
+DATASETS_INFO = dict()
+for dataset in DATASETS:
+    DATASETS_INFO[dataset] = {**load_info(f'datasets/{dataset}/info.json'), 'names': []}
+for dataset, name in zip(gw.DATASET, gw.NAME):
+    DATASETS_INFO[dataset]['names'].append(name)
+
+FOLDS = list(range(config['cv_folds']))
+TYPES = ['positive', 'negative-1', 'negative-2'] #['positive', 'negative-1', 'negative-2', 'negative-1-2']
+
+rule ALL:
+    input:
+        expand(expand("processed/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD}.bed", zip, DATASET=gw.DATASET, NAME=gw.NAME, allow_missing=True), FOLD=FOLDS, TYPE=TYPES),
+        expand(expand("processed/{DATASET}/{NAME}/fold-{FOLD}/.size-ok", zip, DATASET=gw.DATASET, NAME=gw.NAME, allow_missing=True), FOLD=FOLDS, TYPE=TYPES),
+
+# rule done:
+#     input:
+#         #expand(dataset_experiment_blueprints, TYPE=TYPES, FOLD=FOLDS),
+#         expand(expand("processed/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD}.bed", zip, DATASET=gw.DATASET, NAME=gw.NAME, allow_missing=True), FOLD=FOLDS, TYPE=TYPES)
+#     output:
+#         'processed/.done'
+#     shell:
+#         'touch processed/.done'
+
+### Helper Functions ###
+
+def select_background_RBPs(this_name, universe_names):
+    this_RBP = this_name.split('_')[0]
+    return [x for x in universe_names if x.split('_')[0] != this_RBP]
+
+def count_lines(bed):
+    # This is neccessary, because in a dry-run, snakemake will evaluate the 'params' 
+    # directive in the (potentiall non-existing) input files. 
+    if not Path(bed).exists():
+        return -999
+    total = 0
+    with open(bed) as f:
+        for line in f:
+            total += 1
+    return total
+
+
+
+##########################################
+### Copy Positive and Sample Negatives ###
+##########################################
+
+## 1. We copy over positive instances
+rule copy_positives_cv:
+    input:
+        bed = 'peaks-cv/{DATASET}/{NAME}/fold-{FOLD}/peaks.crosslink.fold-{FOLD}.bed'
+    output:
+        bed = 'processed/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD}.bed'
+    shell:
+        "cp {input.bed} {output.bed}"
+
+
+## 2. Type-I negatives
+rule intersect_peak_transcripts:
+    input:
+        transcripts = lambda wc: f"peaks-cv/.split/gencode.{DATASETS_INFO[wc.DATASET]['gencode']}/{DATASETS_INFO[wc.DATASET]['genome']}/transcripts.fold-{wc.FOLD}.bed",
+        positives = "processed/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD}.bed",
+    output:
+        bed = "processed/{DATASET}/{NAME}/fold-{FOLD}/positive.transcripts.bed"
+    shell:
+        "bedtools intersect -wa -u -a {input.transcripts} -b {input.positives} > {output.bed}"
+
+# 2.1. We extend positive CL sites by 300bp up-and down-stream
+rule extend_positive_crosslinks_cv:
+    input:
+        bed = "processed/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD}.bed"
+    output:
+        bed = temp("processed/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD}.extended.bed")
+    params:
+        genomefile = lambda wc: f"meta/genomes/{DATASETS_INFO[wc.DATASET]['genome']}/{DATASETS_INFO[wc.DATASET]['genome']}.genomefile",
+        slop = 300,
+    shell:
+        "bedtools slop -g {params.genomefile} -b {params.slop} -i {input.bed} > {output.bed}"
+
+# 2.2. Then we sample single-base intervals from regions that are not within 200bp of a true CL site
+rule negative_type_1_cv:
+    conda: "conda/preproc.env.yaml"
+    input:
+       positives_extended = "processed/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD}.extended.bed",
+       transcripts = "processed/{DATASET}/{NAME}/fold-{FOLD}/positive.transcripts.bed"
+    output:
+        bed = "processed/{DATASET}/{NAME}/fold-{FOLD}/negative-1.fold-{FOLD}.bed"
+    params:
+        n = lambda wc: count_lines(f"processed/{wc.DATASET}/{wc.NAME}/fold-{wc.FOLD}/positive.fold-{wc.FOLD}.extended.bed"),
+        window_size = 1,
+        seed = config['seed'],
+    shell:
+        "python code/generate_background_no-peak.py --resample-on-duplicate --window-size {params.window_size} --seed {params.seed} -n {params.n} "
+        "{input.positives_extended} {input.transcripts} > {output.bed}"
+
+# 3. Type-II negatives
+rule negative_type_2_cv:
+    conda: "conda/preproc.env.yaml"
+    input:
+        this_EXPERIMENT = "processed/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD}.bed",
+        other_EXPERIMENTS = lambda wc: expand(f"processed/{wc.DATASET}/{{NAME}}/fold-{wc.FOLD}/positive.fold-{wc.FOLD}.bed", NAME = select_background_RBPs(wc.NAME, DATASETS_INFO[wc.DATASET]['names'])),
+    output:
+        bed = "processed/{DATASET}/{NAME}/fold-{FOLD}/negative-2.fold-{FOLD}.bed"
+    params:
+        n = lambda wc: int(config['negatives_fraction'] * count_lines(f"processed/{wc.DATASET}/{wc.NAME}/fold-{wc.FOLD}/positive.fold-{wc.FOLD}.bed")),
+    shell:
+        "python code/sample_bed.py -n {params.n} {input.other_EXPERIMENTS} > {output}"
+
+rule assert_equal_bed_size:
+    input:
+        positive = "processed/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD}.bed",
+        negative_1 = "processed/{DATASET}/{NAME}/fold-{FOLD}/negative-1.fold-{FOLD}.bed",
+        negative_2 = "processed/{DATASET}/{NAME}/fold-{FOLD}/negative-2.fold-{FOLD}.bed",
+    output:
+        size_ok = "processed/{DATASET}/{NAME}/fold-{FOLD}/.size-ok"
+    run:
+        assert (count_lines(input.positive) == count_lines(input.negative_1) == count_lines(input.negative_2))
+        shell(f'touch {output}')
+
+# # 4. We subsample half of each negative type (I and II) and concat the subsampled negatives
+# rule subsample_negative_types_cv:
+#     input:
+#         positive = "processed/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD}.bed",
+#         negative = "processed/{DATASET}/{NAME}/fold-{FOLD}/negative-{TYPE}.fold-{FOLD}.bed",
+#     output:
+#         bed = temp("processed/{DATASET}/{NAME}/fold-{FOLD}/negative-{TYPE}.fold-{FOLD}.subsamp.bed")
+#     params:
+#         n = lambda wc: int((config['negatives_fraction']/2) * count_lines(f"processed/{wc.DATASET}/{wc.NAME}/fold-{wc.FOLD}/positive.fold-{wc.FOLD}.bed")),
+#     shell:
+#         "python code/reservoir_sample_lines.py -l 1 -n {params.n} {input.negative} > {output.bed}"
+
+# rule concat_subsampled_negatives_cv:
+#     input:
+#         negative_1 = "processed/{DATASET}/{NAME}/fold-{FOLD}/negative-1.fold-{FOLD}.subsamp.bed",
+#         negative_2 = "processed/{DATASET}/{NAME}/fold-{FOLD}/negative-2.fold-{FOLD}.subsamp.bed",
+#     output:
+#         bed = "processed/{DATASET}/{NAME}/fold-{FOLD}/negative-1-2.fold-{FOLD}.bed"
+#     shell:
+#         "cat {input.negative_1} {input.negative_2} > {output.bed}"
+
+
+# # 5. Compile train/test sets for each fold. 
+
+# def not_FOLD(fold):
+#     return list(set(gw.FOLD).difference({fold}))
+
+# rule compile_NEGATIVE_TRAIN:
+#     input:
+#         bed = lambda wc: expand("processed/{DATASET}/{NAME}/fold-{FOLD}/{NEGATIVE_TYPE}.fold-{FOLD}.bed", FOLD=not_FOLD(wc.FOLD), allow_missing=True),
+#     output:
+#         bed = "processed/{DATASET}/{NAME}/fold-{FOLD}/{NEGATIVE_TYPE}/negative.train.bed"
+#     shell:
+#         'cat {input.bed} > {output.bed}'
+
+# rule compile_POSITIVE_TRAIN:
+#     input:
+#         bed = lambda wc: expand("processed/{DATASET}/{NAME}/fold-{FOLD}/{NEGATIVE_TYPE}.fold-{FOLD}.bed", FOLD=not_FOLD(wc.FOLD), allow_missing=True),
+#     output:
+#         bed = "processed/{DATASET}/{NAME}/fold-{FOLD}/{NEGATIVE_TYPE}/negative.train.bed"
+#     shell:
+#         'cat {input.bed} > {output.bed}'

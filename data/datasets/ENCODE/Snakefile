@@ -1,0 +1,103 @@
+"""
+Pipeline for generating high-confidence "positive" sites for each ENCOE RBP.
+"""
+
+gw = glob_wildcards(f"{config['raw']}/{{RBP_CELL}}/eCLIP_experiment/1/1_1/bed/{{ID}}.peaks.l2inputnormnew.bed.compressed.bed.narrowPeak.encode.GRCh38.bed.gz", followlinks=True)
+#print(gw)
+
+rule all:
+    input:
+        expand(f"processed/{{RBP_CELL}}/peaks.crosslink.bed", RBP_CELL=gw.RBP_CELL)
+
+
+
+### Helper Functions ###
+
+def unambiguous_glob(path, pattern):
+    glob_filepaths = list(Path(path).glob(pattern))
+    if len(glob_filepaths) > 1:
+        raise ValueError("Glob path '{glob_filepaths}' with pattern '{pattern}' had >1 matches.")
+    else:
+        return str(glob_filepaths[0])
+
+
+
+###########################
+### Preprocessing Peaks ###
+###########################
+
+
+# 1. Peaks are interesected with transcripts such that we only retain peaks that fall into transcript regions
+rule intersect_peaks_with_transcripts:
+    conda: "conda/preproc.env.yaml"
+    input:
+        lambda wc: unambiguous_glob(f"{config['raw']}/{wc.RBP_CELL}/eCLIP_experiment/{wc.REP}/{wc.REP}_1/bed/", "*.peaks.l2inputnormnew.bed.compressed.bed.narrowPeak.encode.GRCh38.bed.gz")
+    output:
+        temp(f"processed/{{RBP_CELL}}/{{REP}}/peaks.isec-trans.bed")
+    params:
+        transcripts = config['transcripts']
+    shell:
+        "bedtools intersect -u -wa -a {input} -b {params.transcripts} > {output}"
+
+
+# 2. We format the narrow-peaks BED files to BED6 files and set 'score' to FC
+rule format_replicate_beds:
+    input:
+        f"processed/{{RBP_CELL}}/{{REP}}/peaks.isec-trans.bed"
+    output:
+        temp(f"processed/{{RBP_CELL}}/{{REP}}/peaks.isec-trans.format.bed")
+    shell:
+        "python code/format_narrow-peaks-BED.py {input} > {output}"
+
+
+# 3. We intersect both replicates and keep only those peaks which overlap with a peak in the other replicate
+rule intersect_replicates:
+    conda: "conda/preproc.env.yaml"
+    resources:
+        partition="cpu_p",
+        cpus=1, 
+        nice=10000,
+        mem="2G",
+        time="00:30:00"
+    input:
+        replicate_1 = f"processed/{{RBP_CELL}}/1/peaks.isec-trans.format.bed",
+        replicate_2 = f"processed/{{RBP_CELL}}/2/peaks.isec-trans.format.bed"
+    output:
+        temp(f"processed/{{RBP_CELL}}/peaks.isec-trans.format.isec-rep.bed")
+    params:
+        f = 0.5
+    shell:
+        "python code/reciprocal_bedtools_intersect.py -f {params.f} -u {input.replicate_1} {input.replicate_2} > {output}"
+
+
+# 4. We filter peaks by FC and select the to N peaks
+rule filter_and_select_peaks:
+    input:
+        f"processed/{{RBP_CELL}}/peaks.isec-trans.format.isec-rep.bed"
+    output:
+        temp(f"processed/{{RBP_CELL}}/peaks.isec-trans.format.isec-rep.filtered.bed")
+    params:
+        min_FC = config['min_FC'],
+        max_N = config['n_peaks'],
+    shell:
+        "python code/select_top_peaks.py -n {params.max_N} --min-FC {params.min_FC} {input} {output}"
+
+
+# 5. We rename the final set of peaks
+rule copy_peaks:
+    input:
+        f"processed/{{RBP_CELL}}/peaks.isec-trans.format.isec-rep.filtered.bed"
+    output:
+        f"processed/{{RBP_CELL}}/peaks.bed"
+    shell:
+        "cp {input} {output}"
+
+
+# 6. We define the 5' position of each ENCODE peak as the cross-linked site
+rule peak_to_5_prime:
+    input:
+        f"processed/{{RBP_CELL}}/peaks.bed"
+    output:
+        f"processed/{{RBP_CELL}}/peaks.crosslink.bed"
+    shell:
+        "python code/bed_get_5-prime.py {input} > {output}"

@@ -1,0 +1,6 @@
+raw: 'example/raw'
+
+transcripts: "../../meta/example/gencode.v35.annotation.gene.RNAs.chr19.bed"
+
+n_peaks: 5_000
+min_FC: 2.0

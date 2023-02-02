@@ -1,0 +1,10 @@
+### General ###
+PEAKS_PATH: "peaks/{DATASET}/processed/{EXPERIMENT}/peaks.crosslink.bed"
+
+
+
+### Workflow Configs ###
+peaks_config: "peaks-cv/peaks/config.yml"
+peaks_cv_config: "peaks-cv/config.yml"
+train_samples_config: "train-samples/config.yml"
+train_inputs_config: "train-inputs/config.yml"

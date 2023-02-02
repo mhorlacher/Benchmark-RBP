@@ -1,0 +1,71 @@
+gw = glob_wildcards('raw/{ID}_{EXP}_{RBP}/30000/{SAMPLE}/positions.bedGraph.gz')
+
+CELL = 'UNKNOWN'
+
+TARGETS = []
+for ID, EXP, RBP in zip(gw.ID, gw.EXP, gw.RBP):
+    TARGETS.append(f'processed/{RBP}_{CELL}_{EXP}_{ID}/peaks.crosslink.bed')
+SAMPLES = list(set(gw.SAMPLE))
+
+#EXPS = list(set(gw.EXP))
+
+
+#EXPS_dicts = [dict(zip(['ID', 'EXP', 'RBP', 'CT'], x.split('_') + [CELL_TYPE])) for x in EXPS]
+#print(EXPS_dicts)
+
+rule all:
+    input:
+        TARGETS,
+        'processed/peaks.counts.csv',
+        #['processed/{x[RBP]}_{x[CT]}_{x[EXP]}_{x[ID]}/peaks.crosslink.bed'.format(x=x) for x in EXPS_dicts]
+        #expand('processed/{EXP}/peaks.crosslink.bed', EXP = EXPS)
+
+
+# ------------- #
+# --- Rules --- #
+# ------------- #
+
+rule unzip_raw_bed:
+    input:
+        'raw/{ID}_{EXP}_{RBP}/30000/{SAMPLE}/positions.bedGraph.gz'
+    output:
+        temp(f'processed/{{RBP}}_{CELL}_{{EXP}}_{{ID}}/{{SAMPLE}}/positions.bedGraph')
+    shell:
+        'gzip -d -c {input} > {output}'
+
+rule format_iONMF_bedGraph:
+    input:
+        'processed/{RBP}_{CELL}_{EXP}_{ID}/{SAMPLE}/positions.bedGraph'
+    output:
+        temp('processed/{RBP}_{CELL}_{EXP}_{ID}/{SAMPLE}/positions.formatted.bed')
+    shell:
+        'python code/format_iONMF_bedGraph.py {input} > {output}'
+
+rule merge_sample_beds:
+    input:
+        expand('processed/{RBP}_{CELL}_{EXP}_{ID}/{SAMPLE}/positions.formatted.bed', SAMPLE=SAMPLES, allow_missing=True)
+    output:
+        'processed/{RBP}_{CELL}_{EXP}_{ID}/peaks.crosslink.bed'
+    shell:
+        'cat {input} > {output}'
+
+rule count_peaks:
+    input:
+        beds = TARGETS,
+    output:
+        counts_csv = 'processed/peaks.counts.csv'
+    run:
+        with open(output.counts_csv, 'w') as f_out:
+            for bed in input.beds:
+                name = bed.split('/')[-2]
+                with open(bed) as f_in:
+                    n = 0
+                    for _ in f_in:
+                        n += 1
+                    print(f'{name},{n}', file=f_out)
+
+
+
+
+
+

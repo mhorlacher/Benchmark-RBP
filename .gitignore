@@ -21,7 +21,6 @@ sandbox_lambert/
 **/*example*/
 **/models.folder.*/
 
-data/
 data/datasets.unused/
 data/datasets/**/raw/
 data/meta/

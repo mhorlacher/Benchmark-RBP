@@ -1,0 +1,82 @@
+import json
+from pathlib import Path
+
+gw = glob_wildcards('samples-enabled/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD_2}.bed', followlinks=True)
+# print(gw)
+
+def load_info(info_json):
+    with open(info_json) as f:
+        return json.loads(f.read())
+
+DATASETS_INFO = dict()
+for dataset in list(set(gw.DATASET)):
+    DATASETS_INFO[dataset] = load_info(f'../../../datasets/{dataset}/info.json')
+
+rule ALL:
+    input:
+        expand('processed/{DATASET}/fold-{FOLD}/input.fasta', DATASET=set(gw.DATASET), FOLD=set(gw.FOLD)),
+        expand('processed/{DATASET}/fold-{FOLD}/id_rbps_dict.json', DATASET=set(gw.DATASET), FOLD=set(gw.FOLD)),
+
+def list_subdir_names(path):
+    return [x.name for x in Path(path).iterdir() if x.is_dir()]
+
+rule add_rbp_name:
+    input:
+        filename = 'samples-enabled/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD_2}.bed'
+    output:
+        bed = temp('processed/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD_2}.rbp.bed')
+    params:
+        rbp = '{NAME}'
+    shell:
+        './scripts/add_rbp_name.sh {input.filename} {params.rbp} > {output.bed}'
+
+rule generate_windows_bed:
+    input:
+        beds = lambda wc: expand('processed/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD}.rbp.bed', NAME=list_subdir_names(f'samples-enabled/{wc.DATASET}'), allow_missing=True),
+        transcript_bed = lambda wc: f".split/gencode.{DATASETS_INFO[wc.DATASET]['gencode']}/{DATASETS_INFO[wc.DATASET]['genome']}/transcripts.fold-{wc.FOLD}.bed",
+    output:
+        bed = temp('processed/{DATASET}/fold-{FOLD}/input.bed') 
+    params:
+        bin_size = 75,
+    shell:
+        'python scripts/generate_labeled_windows_bed.py {input.beds} --bin-size {params.bin_size} --transcript-bed {input.transcript_bed} > {output}'
+
+rule bed_to_fasta:
+    input:
+        bed = 'processed/{DATASET}/fold-{FOLD}/input.bed'   
+    output:
+        fasta = 'processed/{DATASET}/fold-{FOLD}/input.fasta'   
+    params:
+        genome_fa = lambda wc: f"meta/genomes/{DATASETS_INFO[wc.DATASET]['genome']}/{DATASETS_INFO[wc.DATASET]['genome']}.fa",
+    shell:
+        """
+        set +u
+        source $HOME/.bashrc
+        conda activate multirbp-gpu
+        set -u
+
+        python scripts/bed_to_fasta.py --input-bed {input.bed} --genome-fasta {params.genome_fa} --output-fasta {output.fasta}
+        """
+
+# We create a dictionary of sample_id : rbps bound
+# e.g. chr1:1110-1210(+) : AGO1_UNKNOWN_PARCLIP,AGO2_UNKNOWN_PARCLIP,...
+# We need this later on when predicting (to know the ground truth)
+rule create_binding_info_dict:
+    input:
+        fasta = 'processed/{DATASET}/fold-{FOLD}/input.fasta'
+        # Ex. >chr1:568914.0-568989.0(+) AGO1_HEK293_PARCLIP,AGO1_HEK293_PARCLIP
+    output:
+        id_rbps_dict = 'processed/{DATASET}/fold-{FOLD}/id_rbps_dict.json'
+    run:
+        import json
+
+        id_rbps_dict = {}
+        with open(input.fasta) as f_in:
+            for line in f_in:
+                if line.startswith(">"):
+                    id = line.strip().split(" ")[0][1:]
+                    rbps_string = line.strip().split(" ")[1]
+                    id_rbps_dict[id] = rbps_string
+
+        with open(output.id_rbps_dict, 'w') as f:
+            json.dump(id_rbps_dict, f)

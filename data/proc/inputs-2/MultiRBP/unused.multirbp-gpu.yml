@@ -1,0 +1,14 @@
+name: multirbp-gpu
+channels:
+  - bioconda
+  - r
+  - conda-forge
+  - defaults
+dependencies:
+  - python==3.7
+  - pysam
+  - ca-certificates
+  - openssl
+  - pandas
+  - numpy
+prefix: /home/icb/giulia.cantini/miniconda3/envs/multirbp-gpu

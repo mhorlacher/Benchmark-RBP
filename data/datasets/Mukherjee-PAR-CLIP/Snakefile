@@ -1,0 +1,96 @@
+from pathlib import Path
+import pandas as pd
+
+df = pd.read_csv('raw/filter.csv', sep=' ')
+df['name'] = list(map(lambda x: x.replace('_', '-'), df.RBP))
+name_to_SRA = dict(zip(df['name'], df['SRA']))
+
+CELL_TYPE = 'HEK293'
+PROTOCOL = 'PARCLIP'
+
+rule ALL:
+    input:
+        expand(f'processed.full/{{NAME}}_{CELL_TYPE}_{PROTOCOL}/peaks.bed', NAME=[name for name, sra in name_to_SRA.items() if Path(f'raw/parclip_data/{sra}').exists()]),
+        expand(f'processed.full/{{NAME}}_{CELL_TYPE}_{PROTOCOL}/peaks.crosslink.bed', NAME=[name for name, sra in name_to_SRA.items() if Path(f'raw/parclip_data/{sra}').exists()]),
+        'processed.full/peaks.counts.csv', 
+        #expand(f'processed/{{NAME}}_{CELL_TYPE}_{PROTOCOL}/peaks.crosslink.bed', NAME=[name for name, sra in name_to_SRA.items() if Path(f'raw/parclip_data/{sra}').exists()]),
+        'processed/.rm-done'
+
+rule copy_peaks:
+    input:
+        lambda wc: f'raw/parclip_data/{name_to_SRA[wc.NAME]}'
+    output:
+        f'processed.full/{{NAME}}_{CELL_TYPE}_{PROTOCOL}/peaks.bed'
+    shell:
+        'cp {input} {output}'
+
+checkpoint center_peaks:
+    input:
+        bed = f'processed.full/{{NAME}}_{CELL_TYPE}_{PROTOCOL}/peaks.bed'
+    output:
+        bed = f'processed.full/{{NAME}}_{CELL_TYPE}_{PROTOCOL}/peaks.crosslink.bed'
+    run:
+        with open(input.bed) as f_in, open(output.bed, 'w') as f_out:
+            for line in f_in:
+                chrom, start, end, strand = line.strip().split('\t')
+                peak_length = int(end) - int(start)
+                start = str(int(start) + int(peak_length/2))
+                end = str(int(start) + 1)
+
+                print('\t'.join([chrom, start, end, '.', str(peak_length), strand]), file=f_out)
+
+rule count_peaks:
+    input:
+        beds = expand(f'processed.full/{{NAME}}_{CELL_TYPE}_{PROTOCOL}/peaks.crosslink.bed', NAME=[name for name, sra in name_to_SRA.items() if Path(f'raw/parclip_data/{sra}').exists()]),
+    output:
+        counts_csv = 'processed.full/peaks.counts.csv'
+    run:
+        with open(output.counts_csv, 'w') as f_out:
+            for bed in input.beds:
+                name = bed.split('/')[-2]
+                with open(bed) as f_in:
+                    n = 0
+                    for _ in f_in:
+                        n += 1
+                    print(f'{name},{n}', file=f_out)
+
+rule copy_processed:
+    input:
+        bed = f'processed.full/{{NAME}}_{CELL_TYPE}_{PROTOCOL}/peaks.crosslink.bed'
+    output:
+        bed = f'processed/{{NAME}}_{CELL_TYPE}_{PROTOCOL}/peaks.crosslink.bed'
+    shell:
+        'cp {input} {output}'
+
+rule remove_by_cutoff:
+    input:
+        beds = expand(f'processed/{{NAME}}_{CELL_TYPE}_{PROTOCOL}/peaks.crosslink.bed', NAME=[name for name, sra in name_to_SRA.items() if Path(f'raw/parclip_data/{sra}').exists()]),
+    output:
+        done = 'processed/.rm-done'
+    params:
+        max_n = 100_000,
+    run:
+        for bed in input.beds:
+            with open(bed) as f_in:
+                n = 0
+                for _ in f_in:
+                    n += 1
+            if n > params.max_n:
+                print(f'removing {bed}')
+                shell(f'rm {bed}')
+        shell('touch {output.done}')
+    
+
+# def filter_by_cutoff(wildcards):
+#     name2count = dict()
+#     with open('processed.full/peaks.counts.csv') as f:
+#         for line in f:
+#             name, count = line.strip().split(',')
+#             name2count[name] = count
+    
+#     with open()
+
+# rule simlink_by_cutoff_done:
+#     input:
+#         beds = expand(f'processed.full/{{NAME}}_{CELL_TYPE}_{PROTOCOL}/peaks.crosslink.bed', NAME=[name for name, sra in name_to_SRA.items() if Path(f'raw/parclip_data/{sra}').exists()])
+    

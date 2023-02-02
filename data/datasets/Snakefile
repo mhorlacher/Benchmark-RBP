@@ -1,0 +1,51 @@
+rule all:
+    input:
+        'ENCODE/stats.ENCODE.csv',
+        'iONMF/stats.iONMF.csv',
+        'stats.csv',
+
+rule aggregate_ENCODE:
+    params:
+        NAME = lambda _: glob_wildcards('ENCODE/processed/{NAME}/peaks.crosslink.bed').NAME
+    output:
+        csv = 'ENCODE/stats.ENCODE.csv'
+    run:
+        with open(output.csv, 'w') as f:
+            print('rbp,cell,protocol', file=f)
+            for name in params.NAME:
+                rbp, cell = name.split('_')
+                protocol = 'ECLIP'
+                print(f'{rbp},{cell},{protocol}', file=f)
+
+rule aggregate_iONMF:
+    params:
+        NAME = lambda _: glob_wildcards('iONMF/processed/{NAME}/peaks.crosslink.bed').NAME
+    output:
+        csv = 'iONMF/stats.iONMF.csv'
+    run:
+        with open(output.csv, 'w') as f:
+            print('nr,protocol,rbp', file=f)
+            for name in params.NAME:
+                nr, protocol, rbp = name.split('_')
+                print(f'{nr},{protocol},{rbp}', file=f)
+
+rule aggregate_ALL:
+    input:
+        stats = expand('{SOURCE}/stats.{SOURCE}.csv', SOURCE=['ENCODE', 'iONMF'])
+    output:
+        csv = 'stats.csv'
+    run:
+        column_names, rows = list(), list()
+        for source_stats in input.stats:
+            with open(source_stats) as f:
+                header = f.readline().strip().split(',')
+                for line in f:
+                    rows.append(dict(zip(header, line.strip().split(','))))
+                column_names += header
+        column_names = list(set(column_names))
+
+        with open(output.csv, 'w') as f:
+            print(','.join(column_names), file=f)
+            for row in rows:
+                print(','.join([row.get(column_name, '.').upper() for column_name in column_names]), file=f)
+

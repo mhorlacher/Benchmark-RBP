@@ -1,0 +1,45 @@
+# Snakefile to aggregate all sub-workflows as Snakemake 'subworkflow' directives
+
+####################
+### Subworkflows ###
+####################
+
+# 1. Peaks CV-Splitting
+subworkflow peaks_cv:
+    workdir:
+        "peaks-cv/"
+    snakefile:
+        "peaks-cv/Snakefile"
+    configfile:
+        "peaks-cv/config.yml"
+
+# 2. Generating Positive and Negative Samples
+subworkflow train_samples:
+    workdir:
+        "train-samples/"
+    snakefile:
+        "train-samples/Snakefile"
+    configfile:
+        "train-samples/config.yml"
+
+# 3. Generating Final Method Inputs
+subworkflow train_inputs:
+    workdir:
+        "train-inputs/"
+    snakefile:
+        "train-inputs/Snakefile"
+    configfile:
+        "train-inputs/config.yml"
+
+
+# Now: Execute all sub-workflows!
+rule all:
+    input:
+        # 1. peaks_cv
+        peaks_cv('processed/.done'),
+        
+        # 2. train_samples
+        train_samples('processed/.done'),
+        
+        # 3. train_inputs
+        train_inputs('processed/.done'),

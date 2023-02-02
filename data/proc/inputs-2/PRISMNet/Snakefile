@@ -1,0 +1,143 @@
+# gw = glob_wildcards("../../samples-enabled/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD_2}.bed", followlinks=True)
+gw = glob_wildcards("../../samples-enabled/iONMF/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD_2}.bed", followlinks=True) # TODO Temp
+
+#print(gw)
+
+# FOLDS = [0,]
+TYPES = ['negative-1', 'negative-2',]
+DATASETS = ['iONMF',]
+
+rule ALL:
+    input:
+#        expand("processed/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD}.tsv", zip, DATASET=gw.DATASET, NAME=gw.NAME, FOLD=gw.FOLD, TYPE=gw.TYPE, allow_missing=True)
+        expand(expand("processed/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD}.tsv", zip, NAME=gw.NAME, FOLD=gw.FOLD, allow_missing=True), DATASET=DATASETS, TYPE=TYPES)
+
+def load_info(info_json):
+    with open(info_json) as f:
+        return json.loads(f.read())
+
+# DATASETS = list(set(gw.DATASET))
+DATASETS = list(set(DATASETS)) # TODO Temp
+DATASETS_INFO = dict()
+for dataset in DATASETS:
+    DATASETS_INFO[dataset] = {**load_info(f'datasets/{dataset}/info.json'), 'names': []}
+# for dataset, name in zip(gw.DATASET, gw.NAME):
+for dataset, name in zip(DATASETS, gw.NAME): # TODO Temp
+    DATASETS_INFO[dataset]['names'].append(name)
+
+
+################
+### PRISMNet ###
+################
+
+rule PRISMNet_bed_slop:
+    input:
+        bed = "../../samples-enabled/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD}.bed"
+    output:
+        temp("processed/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD}.ext.bed")
+    params:
+        genomefile = lambda wc: f"../../../meta/genomes/{DATASETS_INFO[wc.DATASET]['genome']}/{DATASETS_INFO[wc.DATASET]['genome']}.genomefile",
+        slop_l = 50,
+        slop_r = 50
+    shell:
+        # """
+        # bedtools slop -s -g {params.genomefile} -l {params.slop_l} -r {params.slop_r} -i {input} > {output}
+        # """
+        """
+        set +u
+        source $HOME/.bashrc
+        conda activate bio
+        set -u
+        bedtools slop -s -g {params.genomefile} -l {params.slop_l} -r {params.slop_r} -i {input} > {output}
+        """
+
+rule PRISMNet_bed_awk:
+    input:
+        bed = "processed/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD}.ext.bed"
+    output:
+        bed = "processed/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD}.bed"
+    shell:
+        "awk '{{ if(($3 - $2) == 101) {{print}} }}' {input.bed} > {output.bed}"
+
+rule PRISMNet_fasta:
+    input:
+        bed = "processed/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD}.bed"
+    output:
+        fasta = "processed/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD}.fasta"
+    params:
+        genome_fa = lambda wc: f"../../../meta/genomes/{DATASETS_INFO[wc.DATASET]['genome']}/{DATASETS_INFO[wc.DATASET]['genome']}.fa",
+    shell:
+        # """
+        # bedtools getfasta -s -fi {params.genome_fa} -bed {input.bed} > {output.fasta}
+        # """
+        """
+        set +u
+        source $HOME/.bashrc
+        conda activate bio
+        set -u
+        bedtools getfasta -s -fi {params.genome_fa} -bed {input.bed} > {output.fasta}
+        """
+
+rule PRISMNet_preprocessing:
+    input:
+        input_bed = "processed/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD}.bed",
+        input_fasta = "processed/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD}.fasta"
+    output:
+        output_tsv = temp("processed/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD}.tmp.tsv")
+    params:
+        icshape = lambda wc: f"../../../meta/icSHAPE/{DATASETS_INFO[wc.DATASET]['genome']}",
+        genomefile = lambda wc: f"../../../meta/genomes/{DATASETS_INFO[wc.DATASET]['genome']}/{DATASETS_INFO[wc.DATASET]['genome']}.genomefile",
+        ionmf_json = "scripts/ionmf_cell_lines_dict.json"
+    shell:
+        # """
+        # python scripts/preprocessing.py \
+        #     --input_bed {input.input_bed} \
+        #     --input_fasta {input.input_fasta} \
+        #     --icshape_dir {params.icshape}\
+        #     --genomefile {params.genomefile} \
+        #     --output_tsv {output.output_tsv}
+        # """
+        """
+        set +u
+        source $HOME/.bashrc
+        conda activate bio
+        set -u
+        python scripts/preprocessing.py \
+            --input_bed {input.input_bed} \
+            --input_fasta {input.input_fasta} \
+            --icshape_dir {params.icshape}\
+            --genomefile {params.genomefile} \
+            --ionmf_json {params.ionmf_json} \
+            --output_tsv {output.output_tsv}
+        """
+
+# Fix: Set scores of negative-2 to -1.0 otherwise PrismNet will treat them as positive during training
+rule PRISMNet_preprocessing_tweak_neg_2:
+    input:
+        #input_tsv_neg_1_2 = "processed/{DATASET}/{NAME}/fold-{FOLD}/negative-1-2.fold-{FOLD}.tmp.tsv",
+        input_tsv_neg_2 = "processed/{DATASET}/{NAME}/fold-{FOLD}/negative-2.fold-{FOLD}.tmp.tsv"
+    output:
+        #output_tsv_neg_1_2 = "processed/{DATASET}/{NAME}/fold-{FOLD}/negative-1-2.fold-{FOLD}.tsv",
+        output_tsv_neg_2 = "processed/{DATASET}/{NAME}/fold-{FOLD}/negative-2.fold-{FOLD}.tsv"
+    shell:
+        """        
+        awk '{{ OFS="\\t" }};{{ $5 = "-1.0"; print; }}' {input.input_tsv_neg_2} > {output.output_tsv_neg_2}  
+        """
+        # """        
+        # awk '{{ OFS="\\t" }};{{ $5 = "-1.0"; print; }}' {input.input_tsv_neg_1_2} > {output.output_tsv_neg_1_2}  
+        # awk '{{ OFS="\\t" }};{{ $5 = "-1.0"; print; }}' {input.input_tsv_neg_2} > {output.output_tsv_neg_2}  
+        # """
+
+# Just a copy
+rule PRISMNet_preprocessing_copy:
+    input: 
+        input_tsv_pos = "processed/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD}.tmp.tsv",
+        input_tsv_neg_1 = "processed/{DATASET}/{NAME}/fold-{FOLD}/negative-1.fold-{FOLD}.tmp.tsv"
+    output: 
+        output_tsv_pos = "processed/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD}.tsv",
+        output_tsv_neg_1 = "processed/{DATASET}/{NAME}/fold-{FOLD}/negative-1.fold-{FOLD}.tsv"
+    shell: 
+        """
+        cp {input.input_tsv_pos} {output.output_tsv_pos}
+        cp {input.input_tsv_neg_1} {output.output_tsv_neg_1}
+        """

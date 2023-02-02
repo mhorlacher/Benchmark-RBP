@@ -1,0 +1,51 @@
+import json
+
+gw = glob_wildcards("../../samples-enabled/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD_2}.bed", followlinks=True)
+
+def load_info(info_json):
+    with open(info_json) as f:
+        return json.loads(f.read())
+
+DATASETS_INFO = dict()
+for dataset in list(set(gw.DATASET)):
+    DATASETS_INFO[dataset] = load_info(f'../../../datasets/{dataset}/info.json')
+
+
+### ALL Rule ###
+rule ALL:
+    input:
+        expand("processed/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD}.UPPER.fasta", zip, DATASET=gw.DATASET, NAME=gw.NAME, FOLD=gw.FOLD, TYPE=gw.TYPE)
+
+
+rule slop_bed:
+    input:
+        bed = "../../samples-enabled/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD}.bed"
+    output:
+        bed = "processed/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD}.bed"
+    params:
+        genomefile = lambda wc: f"../../../meta/genomes/{DATASETS_INFO[wc.DATASET]['genome']}/{DATASETS_INFO[wc.DATASET]['genome']}.genomefile",
+        slop = 50,
+    shell:
+        "bedtools slop -g {params.genomefile} -b {params.slop} -i {input.bed} > {output.bed}"
+
+rule bed_to_fasta:
+    input:
+        bed = "processed/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD}.bed"
+    output:
+        fasta = "processed/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD}.fasta"
+    params:
+        genome_fa = lambda wc: f"../../../meta/genomes/{DATASETS_INFO[wc.DATASET]['genome']}/{DATASETS_INFO[wc.DATASET]['genome']}.fa",
+    shell:
+        "bedtools getfasta -s -fi {params.genome_fa} -bed {input} > {output}"
+
+rule fasta_to_upper:
+    input:
+        fasta = "processed/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD}.fasta"
+    output:
+        fasta = "processed/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD}.UPPER.fasta"
+    run:
+        with open(input.fasta) as f_in, open(output.fasta, 'w') as f_out:
+            for line in f_in:
+                assert line[0] == '>'
+                print(line.strip(), file=f_out)
+                print(f_in.readline().strip().upper(), file=f_out)
