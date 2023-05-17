@@ -1,0 +1,89 @@
+gw = glob_wildcards('inputs/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD_2}.tokenized.tsv')
+# print(gw)
+
+FOLDS = [0,]
+NEGATIVES = ['negative-1', 'negative-2']
+
+rule ALL:
+    input:
+        # expand(expand('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/pytorch_model.bin', zip, DATASET=gw.DATASET, NAME=gw.NAME, allow_missing=True), NTYPE=NEGATIVES, FOLD=FOLDS),
+        expand(expand('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/train.tsv', zip, DATASET=gw.DATASET, NAME=gw.NAME, allow_missing=True), NTYPE=NEGATIVES, FOLD=FOLDS),
+
+
+def not_FOLD(fold):
+    folds = list(set(gw.FOLD).difference({fold}))
+    # print(f'Fold is {fold}, return folds {folds}.')
+    return folds
+
+rule merge_train:
+    input:
+        negative_tsvs = lambda wc: expand('inputs/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}.fold-{FOLD}.tokenized.tsv', FOLD=not_FOLD(wc.FOLD), allow_missing=True),
+        positive_tsvs = lambda wc: expand('inputs/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD}.tokenized.tsv', FOLD=not_FOLD(wc.FOLD), allow_missing=True),
+    output:
+        tsv = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/train.tsv'
+    run:
+        # print(output.tsv)
+        # print(input.negative_tsvs)
+        # print(input.positive_tsvs)
+        with open(output.tsv, 'w') as f_out:
+            print('sequence\tlabel', file=f_out)
+            for tsv in (list(input.negative_tsvs) + list(input.positive_tsvs)):
+                with open(tsv) as f_in:
+                    # skip header
+                    _ = f_in.readline()
+                    for line in f_in:
+                        print(line.strip(), file=f_out)
+
+# rule BERTRBP_touch_DEV:
+#     output:
+#         tsv = 'processed/dummy-dev.tsv'
+#     shell:
+#         "echo -e 'sequence\tlabel' > {output.tsv}"
+
+rule BERTRBP_train_model:
+    shadow: 'shallow'
+    input:
+        train_tsv = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/train.tsv',
+        # dev_tsv = 'processed/dummy-dev.tsv'
+    params:
+        dnabert_model = '3-new-12w-0',
+        directory = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/',
+        # kmer=3,
+        # max_seq_length=101,
+        # eval_batchsize = 32,
+        train_batchsize = 256,
+        # learning_rate = 2e-4,
+        train_epochs = 20,
+        # logging_steps = 200,
+        # warmup_percent = 0.1,
+        # hidden_dropout_prop = 0.1,
+        # weight_decay = 0.01,
+        # n_processes = 8
+    output:
+        model = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/pytorch_model.bin',
+    shell:
+        """
+        ./train.BERT-RBP.sbatch.GPU.sh {params.dnabert_model} {params.directory} {params.train_batchsize} {params.train_epochs}
+        """
+
+        # """
+        # ./train.BERT-RBP.sbatch.sh {params.dnabert_model} {params.directory}
+        # """
+
+        # """
+        # set +u
+        # source $HOME/.bashrc
+        # conda activate bert-rbp
+        # set -u
+
+        # python3 ../../methods/bert-rbp/examples/run_finetune.py --model_type dna --tokenizer_name dna3 --model_name_or_path {params.dnabert_model} --task_name dnaprom --data_dir {params.directory} --output_dir {params.directory} --do_train --max_seq_length 101 --per_gpu_eval_batch_size 32 --per_gpu_train_batch_size 32 --learning_rate 2e-4 --num_train_epochs 3 --logging_steps 200 --warmup_percent 0.1 --hidden_dropout_prob 0.1 --overwrite_output_dir --weight_decay 0.01 --n_process 8
+        # """
+        # "python3 ../methods/bert-rbp/examples/run_finetune.py --model_type dna --tokenizer_name dna3 --model_name_or_path {params.dnabert_model} --task_name dnaprom --data_dir {params.directory} --output_dir {params.directory} --do_train --max_seq_length 101 --per_gpu_eval_batch_size 32 --per_gpu_train_batch_size 32 --learning_rate 2e-4 --num_train_epochs 3 --logging_steps 200 --warmup_percent 0.1 --hidden_dropout_prob 0.1 --overwrite_output_dir --weight_decay 0.01 --n_process 8"
+
+# rule BERTRBP_done:
+#     input:
+#         model = 'processed/{DATASET}/{NAME}/fold-{FOLD}/BERT-RBP/{NTYPE}/pytorch_model.bin'
+#     output:
+#         done = 'processed/{DATASET}/{NAME}/fold-{FOLD}/BERT-RBP/{NTYPE}/.done'
+#     shell:
+#         'touch {output.done}'
