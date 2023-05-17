@@ -93,3 +93,4 @@ methods/
 
 # ALLOW
 !/data/datasets/ENCODE/processed/**/*
+data/proc/samples.tar.gz

@@ -14,12 +14,12 @@ for dataset, name in zip(gw.DATASET, gw.NAME):
     DATASETS_INFO[dataset]['names'].append(name)
 
 FOLDS = list(range(config['cv_folds']))
-TYPES = ['positive', 'negative-1', 'negative-2'] #['positive', 'negative-1', 'negative-2', 'negative-1-2']
+TYPES = ['negative-2'] #['positive', 'negative-1', 'negative-2', 'negative-1-2']
 
 rule ALL:
     input:
         expand(expand("processed/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD}.bed", zip, DATASET=gw.DATASET, NAME=gw.NAME, allow_missing=True), FOLD=FOLDS, TYPE=TYPES),
-        expand(expand("processed/{DATASET}/{NAME}/fold-{FOLD}/.size-ok", zip, DATASET=gw.DATASET, NAME=gw.NAME, allow_missing=True), FOLD=FOLDS, TYPE=TYPES),
+        # expand(expand("processed/{DATASET}/{NAME}/fold-{FOLD}/.size-ok", zip, DATASET=gw.DATASET, NAME=gw.NAME, allow_missing=True), FOLD=FOLDS, TYPE=TYPES),
 
 # rule done:
 #     input:
@@ -87,7 +87,7 @@ rule extend_positive_crosslinks_cv:
 
 # 2.2. Then we sample single-base intervals from regions that are not within 200bp of a true CL site
 rule negative_type_1_cv:
-    conda: "conda/preproc.env.yaml"
+    # conda: "conda/preproc.env.yaml"
     input:
        positives_extended = "processed/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD}.extended.bed",
        transcripts = "processed/{DATASET}/{NAME}/fold-{FOLD}/positive.transcripts.bed"
@@ -102,18 +102,61 @@ rule negative_type_1_cv:
         "{input.positives_extended} {input.transcripts} > {output.bed}"
 
 # 3. Type-II negatives
-rule negative_type_2_cv:
-    conda: "conda/preproc.env.yaml"
+# rule negative_type_2_cv:
+#     conda: "conda/preproc.env.yaml"
+#     input:
+#         this_EXPERIMENT = "processed/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD}.bed",
+#         other_EXPERIMENTS = lambda wc: expand(f"processed/{wc.DATASET}/{{NAME}}/fold-{wc.FOLD}/positive.fold-{wc.FOLD}.bed", NAME = select_background_RBPs(wc.NAME, DATASETS_INFO[wc.DATASET]['names'])),
+#     output:
+#         bed = "processed/{DATASET}/{NAME}/fold-{FOLD}/negative-2.fold-{FOLD}.bed"
+#     params:
+#         n = lambda wc: int(config['negatives_fraction'] * count_lines(f"processed/{wc.DATASET}/{wc.NAME}/fold-{wc.FOLD}/positive.fold-{wc.FOLD}.bed")),
+#     shell:
+#         "python code/sample_bed.py -n {params.n} {input.other_EXPERIMENTS} > {output}"
+
+rule concat_extended_background_positives:
+    input:
+        this_EXPERIMENT = "processed/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD}.extended.bed",
+        background_EXPERIMENT = lambda wc: expand(f"processed/{wc.DATASET}/{{NAME}}/fold-{wc.FOLD}/positive.fold-{wc.FOLD}.extended.bed", NAME = select_background_RBPs(wc.NAME, DATASETS_INFO[wc.DATASET]['names'])),
+    output:
+        bed = temp("processed/{DATASET}/{NAME}/fold-{FOLD}/background.positives.fold-{FOLD}.extended.bed")
+    shell:
+        "cat {input.background_EXPERIMENT} > {output.bed}"
+
+rule filter_background_positives_overlapping_with_positives:
+    # conda: "conda/preproc.env.yaml"
     input:
         this_EXPERIMENT = "processed/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD}.bed",
-        other_EXPERIMENTS = lambda wc: expand(f"processed/{wc.DATASET}/{{NAME}}/fold-{wc.FOLD}/positive.fold-{wc.FOLD}.bed", NAME = select_background_RBPs(wc.NAME, DATASETS_INFO[wc.DATASET]['names'])),
+        background_EXPERIMENT = "processed/{DATASET}/{NAME}/fold-{FOLD}/background.positives.fold-{FOLD}.extended.bed",
+    output:
+        bed = temp("processed/{DATASET}/{NAME}/fold-{FOLD}/background.positives.fold-{FOLD}.extended.NO-OVERLAP-WITH-TARGET.bed")
+    shell:
+        "bedtools intersect -v -a {input.background_EXPERIMENT} -b {input.this_EXPERIMENT} > {output}"
+
+rule center_extended_bed:
+    input:
+        bed = "processed/{DATASET}/{NAME}/fold-{FOLD}/background.positives.fold-{FOLD}.extended.NO-OVERLAP-WITH-TARGET.bed",
+    output:
+        bed = temp("processed/{DATASET}/{NAME}/fold-{FOLD}/background.positives.fold-{FOLD}.centered.NO-OVERLAP-WITH-TARGET.bed")
+    params:
+        genomefile = lambda wc: f"meta/genomes/{DATASETS_INFO[wc.DATASET]['genome']}/{DATASETS_INFO[wc.DATASET]['genome']}.genomefile",
+        slop = -300,
+    shell:
+        "bedtools slop -b {params.slop} -g {params.genomefile} -i {input.bed} > {output}"
+
+rule negative_type_2_cv:
+    # conda: "conda/preproc.env.yaml"
+    input:
+        bed = "processed/{DATASET}/{NAME}/fold-{FOLD}/background.positives.fold-{FOLD}.centered.NO-OVERLAP-WITH-TARGET.bed",
     output:
         bed = "processed/{DATASET}/{NAME}/fold-{FOLD}/negative-2.fold-{FOLD}.bed"
     params:
         n = lambda wc: int(config['negatives_fraction'] * count_lines(f"processed/{wc.DATASET}/{wc.NAME}/fold-{wc.FOLD}/positive.fold-{wc.FOLD}.bed")),
     shell:
-        "python code/sample_bed.py -n {params.n} {input.other_EXPERIMENTS} > {output}"
+        "python code/sample_bed.py -n {params.n} {input.bed} > {output}"
 
+
+# 4. Assert that the number of positive and negative instances is the same
 rule assert_equal_bed_size:
     input:
         positive = "processed/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD}.bed",
