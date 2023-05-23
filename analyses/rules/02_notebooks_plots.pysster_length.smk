@@ -1,9 +1,14 @@
+from pathlib import Path
+
 ## PYSSTER LENGTH
 ## ==============
 ## Plot loss in performance of Pysster 101b vs Pysster.
 
-#OUTPUT_PYSSTER_LENGTH_DIR = OUTPUT_DIR / "pysster_length"
-#OUTPUT_PYSTER_LENGTH_FILE = OUTPUT_PYSSTER_LENGTH_DIR / "pysster_prismnet_auroc_table.tsv"
+INPUT_PYSSTER_LENGTH_NB_FILE = Path("notebooks/pysster_input_length.ipynb")
+OUTPUT_PYSSTER_LENGTH_DIR = OUTPUT_DIR / "pysster_length"
+OUTPUT_PYSSTER_LENGTH_NB_FILE = OUTPUT_PYSSTER_LENGTH_DIR / "pysster_input_length.ipynb"
+
+#OUTPUT_PYSSTER_LENGTH_PERF_TABLE_FILE = OUTPUT_PYSSTER_LENGTH_DIR / "pysster_prismnet_auroc_table.tsv"
 #OUTPUT_PYSSTER_LENGTH_DELTA_FILE = OUTPUT_PYSSTER_LENGTH_DIR / "pysster_prismnet_auroc_table.tsv"
 
 #
@@ -43,11 +48,15 @@ rule run_pysster_length_nb:
     output:
         notebook = OUTPUT_PYSSTER_LENGTH_NB_FILE,
     params:
-        outputdir = OUTPUT_PYSSTER_LENGTH_DIR,
+        notebook_dir = INPUT_PYSSTER_LENGTH_NB_FILE.parent,
+        output_dir = OUTPUT_PYSSTER_LENGTH_DIR,
     shell:
-        """papermill {input.notebook} {output.notebook} ; 
-            #-p export_plots False \
-            #-p path_output_dir {params.outputdir} \
-            #-p path_pysster_prismnet_auroc_file {input.auroc_table} \
-            #-p path_pysster_delta_file {input.delta_auroc_table} ;
+        """papermill {input.notebook} {output.notebook} \
+            --cwd {params.notebook_dir} \
+            -p export_plots False \
+            -p path_output_dir {params.output_dir} \
+            ; 
         """
+
+            ##-p path_pysster_prismnet_auroc_file {input.auroc_table} \
+            ##-p path_pysster_delta_file {input.delta_auroc_table} ;
