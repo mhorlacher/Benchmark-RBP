@@ -1,0 +1,24 @@
+methods:
+  colors:
+    "GraphProt": "#909090" # Grey
+    "Pysster": "#229DAB" # Blue
+    "Pysster-101": "#91D6EF" # off-Blue
+    "PRISMNet": "#2BCBDC" # Blue
+    "DeepCLIP": "#744949" # Brown
+    "iDeepS": "#a36667" # Brown
+    "DeepRAM": "#BC9482" # Brown
+    "RNAProt-Extended": "#CFA384" # Brown
+    "BERT-RBP": "#EA585A" # Red
+    "DeepRiPe": "#479C7B" # Green
+    "MultiRBP": "#5ECFA2" # Green
+    "Multi-resBind": "#6AEAB7" # Green
+  
+datasets:
+  colors:
+    "Mukherjee-PAR-CLIP": "#C86600" # Dark Orange # "#FAD7AC"  # Orange
+    "ENCODE": "#2c5776" # Dark Blue  # "#ABC8DE" # Light Blue
+    "iONMF": "#581b86" # Dark purple #"#DEBFF5" # Light purple
+  shape:
+    "Mukherjee-PAR-CLIP": "^" 
+    "ENCODE": "o"
+    "iONMF": "s"
