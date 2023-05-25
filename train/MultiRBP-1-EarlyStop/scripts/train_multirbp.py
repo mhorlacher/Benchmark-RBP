@@ -161,7 +161,6 @@ def main():
     y_train = np.take(y_train, indices=train_indices, axis=0)
 
 
-
     # x_train = np.random.shuffle(x_train)
 
     # x_val = x_train[train_size:]
@@ -171,7 +170,6 @@ def main():
     # x_train = x_train[:train_size]
 
     # y_val = y_train[train_size:]
-
 
 
     print(x_train.shape, y_train.shape)
@@ -219,8 +217,8 @@ def main():
     earlystopper = EarlyStopping(monitor='val_loss', patience=5, verbose=1)
     print("Training...")
     # I included the validation data. In the paper, they just train for 78 epochs without val data
-    # model_func.fit(x_train, y_train, batch_size=params_dict["batch"], epochs=params_dict["epochs"], verbose=1, validation_data=(x_val, y_val),)
-    model_func.fit(x_train, y_train, batch_size=params_dict["batch"], epochs=params_dict["epochs"], verbose=1, callbacks=[earlystopper])
+    model_func.fit(x_train, y_train, batch_size=params_dict["batch"], epochs=params_dict["epochs"], verbose=1, validation_data=(x_val, y_val), callbacks=[earlystopper])
+    # model_func.fit(x_train, y_train, batch_size=params_dict["batch"], epochs=params_dict["epochs"], verbose=1, callbacks=[earlystopper])
 
     # Save model
     model_func.save(output_folder_name+"/MultiRBP.h5")

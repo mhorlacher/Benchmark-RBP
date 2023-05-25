@@ -1,5 +1,6 @@
-gw = glob_wildcards('inputs/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD_2}.fasta')
-# print(gw)
+gw = glob_wildcards('inputs-example/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD_2}.fasta')
+# gw = glob_wildcards('inputs/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD_2}.fasta')
+print(gw)
 
 FOLDS = [0, ]
 NEGATIVES = ['negative-1', 'negative-2']
@@ -19,52 +20,73 @@ for dataset in DATASETS:
 for dataset, name in zip(gw.DATASET, gw.NAME):
     DATASETS_INFO[dataset]['names'].append(name)
 
+GENOMES_MAP = {
+    'GRCh37': 'hg19',
+    'GRCh38': 'hg38'
+}
+
 def not_FOLD(fold):
     return list(set(gw.FOLD).difference({fold}))
 
 rule RNAProt_compile_NEGATIVE_TRAIN:
     input:
-        fasta = lambda wc: expand('inputs/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}.fold-{FOLD}.fasta', FOLD=not_FOLD(wc.FOLD), allow_missing=True), 
-        # fasta = lambda wc: expand('inputs-example/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}.fold-{FOLD}.fasta', FOLD=not_FOLD(wc.FOLD), allow_missing=True), # TODO
-
+        bed = lambda wc: expand('inputs-example/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}.fold-{FOLD}.bed', FOLD=not_FOLD(wc.FOLD), allow_missing=True), 
+        # bed = lambda wc: expand('inputs/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}.fold-{FOLD}.bed', FOLD=not_FOLD(wc.FOLD), allow_missing=True), 
+        # fasta = lambda wc: expand('inputs-example/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}.fold-{FOLD}.bed', FOLD=not_FOLD(wc.FOLD), allow_missing=True),
+        # fasta = lambda wc: expand('inputs/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}.fold-{FOLD}.fasta', FOLD=not_FOLD(wc.FOLD), allow_missing=True), 
     output:
-        fasta = temp('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/negative.train.fasta')
+        bed = temp('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/negative.train.bed')
+        # fasta = temp('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/negative.train.fasta'),
+
     shell:
-        'cat {input.fasta} > {output.fasta}'
+        'cat {input.bed} > {output.bed}'
+        # 'cat {input.fasta} > {output.fasta}'
 
 rule RNAProt_compile_POSITIVE_TRAIN:
     input:
-        fasta = lambda wc: expand('inputs/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD}.fasta', FOLD=not_FOLD(wc.FOLD), allow_missing=True),
-        # fasta = lambda wc: expand('inputs-example/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD}.fasta', FOLD=not_FOLD(wc.FOLD), allow_missing=True), # TODO
+        bed = lambda wc: expand('inputs-example/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD}.bed', FOLD=not_FOLD(wc.FOLD), allow_missing=True),
+        # bed = lambda wc: expand('inputs/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD}.bed', FOLD=not_FOLD(wc.FOLD), allow_missing=True),
+        # fasta = lambda wc: expand('inputs/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD}.fasta', FOLD=not_FOLD(wc.FOLD), allow_missing=True),
+        # fasta = lambda wc: expand('inputs-example/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD}.fasta', FOLD=not_FOLD(wc.FOLD), allow_missing=True),
+      
     output:
-        fasta = temp('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/positive.train.fasta')
-    shell:
-        'cat {input.fasta} > {output.fasta}'
+        bed = temp('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/positive.train.bed')
+        # fasta = temp('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/positive.train.fasta')
 
-rule RNAProt_prepare_data_unique_header:
-    input:
-        fasta = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/{NEG_POS}.train.fasta'
-    output:
-        fasta = temp('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/{NEG_POS}.train.uniq-header.fasta')
-    run:
-        with open(output.fasta, 'w') as f_out, open(input.fasta) as f_in:
-            for i, line in enumerate(f_in):
-                if line[0] == '>':
-                    print(f'{line.strip()}:{i}', file=f_out)
-                else:
-                    print(line.strip(), file=f_out)
+    shell:
+        'cat {input.bed} > {output.bed}'
+        # 'cat {input.fasta} > {output.fasta}'
+
+# rule RNAProt_prepare_data_unique_header:
+#     input:
+#         fasta = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/{NEG_POS}.train.fasta'
+#     output:
+#         fasta = temp('processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/{NEG_POS}.train.uniq-header.fasta')
+#     run:
+#         with open(output.fasta, 'w') as f_out, open(input.fasta) as f_in:
+#             for i, line in enumerate(f_in):
+#                 if line[0] == '>':
+#                     print(f'{line.strip()}:{i}', file=f_out)
+#                 else:
+#                     print(line.strip(), file=f_out)
 
 rule RNAProt_prepare_data:
     input:
-        positive = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/positive.train.uniq-header.fasta',
-        negative = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/negative.train.uniq-header.fasta',
+        positive = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/positive.train.bed',
+        negative = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/negative.train.bed',
+        # positive = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/positive.train.uniq-header.fasta',
+        # negative = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/negative.train.uniq-header.fasta',
     output:
-        positive = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/positives.fa',
-        negative = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/negatives.fa',
+        positive = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/positives.bed',
+        negative = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/negatives.bed',
+        # positive = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/positives.fa',
+        # negative = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/negatives.fa',
         features_file = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/features.out'
     params:
-        phastcons_scores = lambda wc: f"../../../meta/phastcons/{DATASETS_INFO[wc.DATASET]['genome']}/phastCons100way.bw",
-        phylop_scores = lambda wc: f"../../../meta/phastcons/{DATASETS_INFO[wc.DATASET]['genome']}/phyloP100way.bw",
+        phastcons_scores = lambda wc: f"../../data/meta/phastcons/{DATASETS_INFO[wc.DATASET]['genome']}/phastCons100way.bw",
+        phylop_scores = lambda wc: f"../../data/meta/phylop/{DATASETS_INFO[wc.DATASET]['genome']}/phyloP100way.bw",
+        ensembl_gtf = lambda wc: f"../../data/meta/ensemble/{DATASETS_INFO[wc.DATASET]['genome']}/{GENOMES_MAP[DATASETS_INFO[wc.DATASET]['genome']]}.gtf",
+        ensembl_2bit = lambda wc: f"../../data/meta/ensemble/{DATASETS_INFO[wc.DATASET]['genome']}/{GENOMES_MAP[DATASETS_INFO[wc.DATASET]['genome']]}.2bit",
         out_dir = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}'
     shell:
         """
@@ -73,13 +95,28 @@ rule RNAProt_prepare_data:
         conda activate rnaprotenv
         set -u
 
-        rnaprot gt --in {input.positive} --neg-in {input.negative} --eia --phastcons {params.phastcons_scores} --phylop {params.phylop_scores} --out {params.out_dir} --report && [[ -s {output.features_file} ]]
+        # if [[ -f {params.phastcons_scores} ]]; then echo "Phastcons found"; fi
+        # if [[ -f {params.phylop_scores} ]]; then echo "Phylop found"; fi
+        
+
+        # touch {output.features_file} ; 
+        # echo -e "fa\tC\tA,C,G,U\t-" > {output.features_file} ; 
+        # just use -gt 0 at the end of the next cmd instead of echoing
+
+        # updated cmd, works with input bed files
+        rnaprot gt --in {input.positive} --neg-in {input.negative}  --gtf {params.ensembl_gtf} --gen {params.ensembl_2bit} --phastcons {params.phastcons_scores} --phylop {params.phylop_scores} --out {params.out_dir} --report
+
+        # rnaprot gt --in {input.positive} --neg-in {input.negative} --eia --phastcons {params.phastcons_scores} --phylop {params.phylop_scores} --out {params.out_dir} --report && [[ -s {output.features_file} ]] # with old check, not working
+        # rnaprot gt --in {input.positive} --neg-in {input.negative} --eia --phastcons {params.phastcons_scores} --phylop {params.phylop_scores} --out {params.out_dir} --report && [[ $(cat {output.features_file} | wc -l) -gt 1 ]] # new check, working
+        
         """
 
 rule RNAProt_train:
     input:
-        positive = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/positives.fa',
-        negative = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/negatives.fa',
+        positive = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/positives.bed',
+        negative = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/negatives.bed',
+        # positive = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/positives.fa',
+        # negative = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/negatives.fa',
     output:
         model = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/final.model'
     params:
