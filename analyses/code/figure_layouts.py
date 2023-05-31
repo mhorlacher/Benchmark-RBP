@@ -51,6 +51,7 @@ def fig2_layout():
 
         PANEL_SIZES[panel] = ax_size_inches
 
+    plt.close()
     return PANEL_SIZES
 
 
@@ -111,6 +112,7 @@ def fig3_layout():
 
         PANEL_SIZES[panel] = ax_size_inches
 
+    plt.close()
     return PANEL_SIZES
 
 
