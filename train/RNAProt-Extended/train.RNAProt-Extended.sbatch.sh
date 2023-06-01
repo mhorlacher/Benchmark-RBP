@@ -15,9 +15,7 @@ sbatch --wait << EOF
 source $HOME/.bashrc
 conda activate rnaprotenv
 
-# updated cmd, uses cons scores but no eia
-rnaprot train --in $1 --out $1 --use-phastcons --use-phylop --verbose-train
-
-# rnaprot train --in $1 --out $1 --use-eia --use-phastcons --use-phylop --verbose-train
+# updated cmd, uses eia and cons scores
+rnaprot train --in $1 --out $1 --use-eia --use-phastcons --use-phylop --verbose-train
 
 EOF

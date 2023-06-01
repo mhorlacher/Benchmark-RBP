@@ -1,9 +1,11 @@
-gw = glob_wildcards('inputs-example/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD_2}.fasta')
+# gw = glob_wildcards('inputs-example/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD_2}.fasta')
+gw = glob_wildcards('inputs-enabled/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD_2}.fasta', followlinks=True)
 # gw = glob_wildcards('inputs/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD_2}.fasta')
-print(gw)
+# print(gw.NAME)
 
 FOLDS = [0, ]
-NEGATIVES = ['negative-1', 'negative-2']
+# NEGATIVES = ['negative-1', 'negative-2']
+NEGATIVES = ['negative-2', ]
 
 rule ALL:
     input:
@@ -14,6 +16,7 @@ def load_info(info_json):
         return json.loads(f.read())
 
 DATASETS = list(set(gw.DATASET))
+
 DATASETS_INFO = dict()
 for dataset in DATASETS:
     DATASETS_INFO[dataset] = {**load_info(f'datasets/{dataset}/info.json'), 'names': []}
@@ -30,8 +33,8 @@ def not_FOLD(fold):
 
 rule RNAProt_compile_NEGATIVE_TRAIN:
     input:
-        bed = lambda wc: expand('inputs-example/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}.fold-{FOLD}.bed', FOLD=not_FOLD(wc.FOLD), allow_missing=True), 
-        # bed = lambda wc: expand('inputs/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}.fold-{FOLD}.bed', FOLD=not_FOLD(wc.FOLD), allow_missing=True), 
+        bed = lambda wc: expand('inputs-enabled/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}.fold-{FOLD}.bed', FOLD=not_FOLD(wc.FOLD), allow_missing=True), 
+        # bed = lambda wc: expand('inputs-example/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}.fold-{FOLD}.bed', FOLD=not_FOLD(wc.FOLD), allow_missing=True), 
         # fasta = lambda wc: expand('inputs-example/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}.fold-{FOLD}.bed', FOLD=not_FOLD(wc.FOLD), allow_missing=True),
         # fasta = lambda wc: expand('inputs/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}.fold-{FOLD}.fasta', FOLD=not_FOLD(wc.FOLD), allow_missing=True), 
     output:
@@ -44,8 +47,8 @@ rule RNAProt_compile_NEGATIVE_TRAIN:
 
 rule RNAProt_compile_POSITIVE_TRAIN:
     input:
-        bed = lambda wc: expand('inputs-example/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD}.bed', FOLD=not_FOLD(wc.FOLD), allow_missing=True),
-        # bed = lambda wc: expand('inputs/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD}.bed', FOLD=not_FOLD(wc.FOLD), allow_missing=True),
+        bed = lambda wc: expand('inputs-enabled/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD}.bed', FOLD=not_FOLD(wc.FOLD), allow_missing=True),
+        # bed = lambda wc: expand('inputs-example/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD}.bed', FOLD=not_FOLD(wc.FOLD), allow_missing=True),
         # fasta = lambda wc: expand('inputs/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD}.fasta', FOLD=not_FOLD(wc.FOLD), allow_missing=True),
         # fasta = lambda wc: expand('inputs-example/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD}.fasta', FOLD=not_FOLD(wc.FOLD), allow_missing=True),
       
@@ -85,8 +88,8 @@ rule RNAProt_prepare_data:
     params:
         phastcons_scores = lambda wc: f"../../data/meta/phastcons/{DATASETS_INFO[wc.DATASET]['genome']}/phastCons100way.bw",
         phylop_scores = lambda wc: f"../../data/meta/phylop/{DATASETS_INFO[wc.DATASET]['genome']}/phyloP100way.bw",
-        ensembl_gtf = lambda wc: f"../../data/meta/ensemble/{DATASETS_INFO[wc.DATASET]['genome']}/{GENOMES_MAP[DATASETS_INFO[wc.DATASET]['genome']]}.gtf",
-        ensembl_2bit = lambda wc: f"../../data/meta/ensemble/{DATASETS_INFO[wc.DATASET]['genome']}/{GENOMES_MAP[DATASETS_INFO[wc.DATASET]['genome']]}.2bit",
+        ensembl_gtf = lambda wc: f"../../data/meta/ensembl/{DATASETS_INFO[wc.DATASET]['genome']}/{GENOMES_MAP[DATASETS_INFO[wc.DATASET]['genome']]}.gtf",
+        ensembl_2bit = lambda wc: f"../../data/meta/ensembl/{DATASETS_INFO[wc.DATASET]['genome']}/{GENOMES_MAP[DATASETS_INFO[wc.DATASET]['genome']]}.2bit",
         out_dir = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}'
     shell:
         """
@@ -97,14 +100,13 @@ rule RNAProt_prepare_data:
 
         # if [[ -f {params.phastcons_scores} ]]; then echo "Phastcons found"; fi
         # if [[ -f {params.phylop_scores} ]]; then echo "Phylop found"; fi
-        
 
         # touch {output.features_file} ; 
         # echo -e "fa\tC\tA,C,G,U\t-" > {output.features_file} ; 
-        # just use -gt 0 at the end of the next cmd instead of echoing
+        # just use -gt 0 at the end of the next cmd instead of echoing - also this is wrong with additional features
 
-        # updated cmd, works with input bed files
-        rnaprot gt --in {input.positive} --neg-in {input.negative}  --gtf {params.ensembl_gtf} --gen {params.ensembl_2bit} --phastcons {params.phastcons_scores} --phylop {params.phylop_scores} --out {params.out_dir} --report
+        # updated cmd, works with input bed files, exon-intron annotation and conservation scores
+        rnaprot gt --in {input.positive} --neg-in {input.negative}  --gtf {params.ensembl_gtf} --gen {params.ensembl_2bit} --eia --phastcons {params.phastcons_scores} --phylop {params.phylop_scores} --allow-overlaps --no-gene-filter --out {params.out_dir} --report && [[ $(cat {output.features_file} | wc -l) -gt 1 ]]
 
         # rnaprot gt --in {input.positive} --neg-in {input.negative} --eia --phastcons {params.phastcons_scores} --phylop {params.phylop_scores} --out {params.out_dir} --report && [[ -s {output.features_file} ]] # with old check, not working
         # rnaprot gt --in {input.positive} --neg-in {input.negative} --eia --phastcons {params.phastcons_scores} --phylop {params.phylop_scores} --out {params.out_dir} --report && [[ $(cat {output.features_file} | wc -l) -gt 1 ]] # new check, working
