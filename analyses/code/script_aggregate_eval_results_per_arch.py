@@ -95,9 +95,10 @@ def main():
 
         except Exception as e:
             group_name = ";".join([f"{k}:{v}" for k, v in meta_info.items()])
+            print(e)
             logging.error(f"ERROR parsing {group_name} - {e}")
             logging.info(f"Error parsing {group_name} ; skipping.")
-            continue
+            raise e
 
     logging.info(f"{params.arch} - auROCs computation")
 
@@ -140,12 +141,12 @@ def main():
         axis=1,
     )
 
-    if not (
-        full_summarized_table["model_negativeset"].values
-        == full_summarized_table["sample_negset"].values
-    ).all():
-        warn_msg = f"{params.arch} Table contain cross-negative predictions."
-        logging.warn(warn_msg)
+    # if not (
+    #    full_summarized_table["model_negativeset"].values
+    #    == full_summarized_table["sample_negset"].values
+    # ).all():
+    #    warn_msg = f"{params.arch} Table contain cross-negative predictions."
+    #    logging.warn(warn_msg)
 
     full_summarized_table.to_csv(
         output.output_fp,
