@@ -54,6 +54,8 @@ def parse_df(
     if not meta_info:
         meta_info = {}
 
+    meta_info["sample_negset"] = sample_negset
+
     for field in [
         "dataset",
         "RBP_dataset",
@@ -62,6 +64,9 @@ def parse_df(
         "sample_negset",
     ]:
         if field not in meta_info:
+            if field not in read_df.columns:
+                raise KeyError(f'Field "{field}" not found and not provided.')
+
             if read_df[field].unique().shape[0] > 1:
                 raise ValueError(
                     f"No `{field}` provided, and more than one unique value in `dataset`"
@@ -77,10 +82,14 @@ def parse_df(
     df.meta["model_negativeset"] = meta_info.get(
         "model_negativeset", read_df["model_negativeset"].unique()[0]
     )
-    df.meta["sample_negset"] = meta_info.get("sample_negset", sample_negset)
+    df.meta["sample_negset"] = (
+        meta_info["sample_negset"] if "sample_negset" in meta_info else sample_negset
+    )
 
     if verbose:
-        print(";".join(["{k}={v}" for k, v in df.meta.items()] + ["N={df.shape[0]:,}"]))
+        print(
+            ";".join([f"{k}={v}" for k, v in df.meta.items()] + [f"N={df.shape[0]:,}"])
+        )
 
     return df
 
