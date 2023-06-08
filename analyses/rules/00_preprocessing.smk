@@ -16,32 +16,48 @@ COLUMNS_EVAL_TABLE = [
 ]
 
 MAIN_ARCHS = [
-    #'BERT-RBP',
-    #'DeepCLIP',
-    #'DeepRAM',
-    #'GraphProt',
-    #'iDeepS', 
-    #'PRISMNet', # CNN, sequence + structure
+    'BERT-RBP',
+    'DeepCLIP',
+    'DeepRAM',
+    'GraphProt',
+    'iDeepS', 
+    'PRISMNet', # CNN, sequence + structure
     'Pysster', 
     'Pysster-101', # Modified version to test for length impact.
-    'RNAProt-Extended', #TODO: actually sequence-only? => rename both the file and the content.
+    'RNAProt', # The extended model now!
+    'RNAProt-seqonly', # The run from january ; used for comparison against RNAProt
 ]
 
 # Multilabel methods are quite RAM intensive => separated for easy comment-out.
 MAIN_ARCHS += [
-    #'DeepRiPe', 
+    'DeepRiPe', 
     #'DeepRiPe-1_V1',  #TODO: what is this? => Lambert's rerun attempt, useless.
-    #'DeepRiPe-1', # Complemented with negative-1 class.
-    #'MultiRBP', 
-    #'MultiRBP-1', #TODO: where?
-    #'Multi-resBind', 
-    #'Multi-resBind-1',
+    'DeepRiPe-1', # Complemented with negative-1 class.
+    'MultiRBP', 
+    #'MultiRBP-1', #TODO: where for January? => MultiRBP was actually very long to train (no early stopping) + perform poorer than e.g. DeepRiPe => not supplemented.
+    'Multi-resBind', 
+    'Multi-resBind-1',
+]
+
+CROSSCT_PROT_ARCHS = [
+    "DeepCLIP",
+    "iDeepS",
+    "Pysster",
+    #"Pysster-101",
+    "PRISMNet",
 ]
 
 
 # January: first submission ; May: review runs including models' mods.
-BATCHES = ['2023-01-01', '2023-05-24']
-EXPERIMENTS = ['main', 'crossCT', 'crossProtocol']
+BATCHES = [
+    '2023-01-01',
+    '2023-05-24',
+] 
+EXPERIMENTS = [
+    'main',
+    'crossCT',
+    'crossProt',
+]
 
 RESULTS_DIR = "results/{BATCH}/00_processed/{EXPERIMENT}/"
 INPUT_PER_ARCH_FILE = "datasets/{BATCH}_benchmark_results/{EXPERIMENT}/results.{ARCH}.csv.gz"
@@ -59,13 +75,28 @@ def GET_AVAILABLE_ARCHS(**kwargs):
 rule all:
     input:
         # Explicitely separating the geeneration of each set of tables for easy commenting.
-        january_main_aurocs = expand(
-                                OUTPUT_PER_ARCH_FILE,
-                                BATCH=['2023-01-01',],
-                                EXPERIMENT=['main',],
-                                ARCH=GET_AVAILABLE_ARCHS(BATCH='2023-01-01', EXPERIMENT='main')
-                                ),
-        january_main_aurocs_gathered = OUTPUT_FILE.format(BATCH='2023-01-01', EXPERIMENT='main'),
+        #january_main_aurocs = expand(
+        #                        OUTPUT_PER_ARCH_FILE,
+        #                        BATCH=['2023-01-01',],
+        #                        EXPERIMENT=['main',],
+        #                        ARCH=GET_AVAILABLE_ARCHS(BATCH='2023-01-01', EXPERIMENT='main')
+        #                        ),
+        #january_main_aurocs_gathered = OUTPUT_FILE.format(BATCH='2023-01-01', EXPERIMENT='main'),
+        #january_crossCT_aurocs = expand(
+        #                            OUTPUT_PER_ARCH_FILE,
+        #                            BATCH=['2023-01-01',],
+        #                            EXPERIMENT=['crossCT',],
+        #                            ARCH=GET_AVAILABLE_ARCHS(BATCH='2023-01-01', EXPERIMENT='crossCT')
+        #                            ),
+        #january_crossCT_aurocs_gathered = OUTPUT_FILE.format(BATCH='2023-01-01', EXPERIMENT='crossCT'),
+        #january_crossProt_aurocs = expand(
+        #                            OUTPUT_PER_ARCH_FILE,
+        #                            BATCH=['2023-01-01',],
+        #                            EXPERIMENT=['crossProt',],
+        #                            ARCH=GET_AVAILABLE_ARCHS(BATCH='2023-01-01', EXPERIMENT='crossProt')
+        #                            ),
+        #january_crossProt_aurocs_gathered = OUTPUT_FILE.format(BATCH='2023-01-01', EXPERIMENT='crossProt'),
+        ##
         may_main_aurocs = expand(
                                 OUTPUT_PER_ARCH_FILE,
                                 BATCH=['2023-05-24',],
@@ -73,15 +104,20 @@ rule all:
                                 ARCH=GET_AVAILABLE_ARCHS(BATCH='2023-05-24', EXPERIMENT='main')
                                 ),
         may_main_aurocs_gathered = OUTPUT_FILE.format(BATCH='2023-05-24', EXPERIMENT='main'),
-        january_crossCT_aurocs = expand(
+        may_crossCT_aurocs = expand(
                                     OUTPUT_PER_ARCH_FILE,
-                                    BATCH=['2023-01-01',],
+                                    BATCH=['2023-05-24',],
                                     EXPERIMENT=['crossCT',],
-                                    ARCH=GET_AVAILABLE_ARCHS(BATCH='2023-01-01', EXPERIMENT='crossCT')
+                                    ARCH=GET_AVAILABLE_ARCHS(BATCH='2023-05-24', EXPERIMENT='crossCT')
                                     ),
-        january_crossCT_aurocs_gathered = OUTPUT_FILE.format(BATCH='2023-01-01', EXPERIMENT='crossCT'),
-
-
+        may_crossCT_aurocs_gathered = OUTPUT_FILE.format(BATCH='2023-05-24', EXPERIMENT='crossCT'),
+        may_crossProt_aurocs = expand(
+                                    OUTPUT_PER_ARCH_FILE,
+                                    BATCH=['2023-05-24',],
+                                    EXPERIMENT=['crossProt',],
+                                    ARCH=GET_AVAILABLE_ARCHS(BATCH='2023-05-24', EXPERIMENT='crossProt')
+                                    ),
+        may_crossProt_aurocs_gathered = OUTPUT_FILE.format(BATCH='2023-05-24', EXPERIMENT='crossProt'),
 
 ## rule aggregate_per_arch: calculate summary statistics from each validation set.
 ## Aggregation results in the main auROC value, in addition to diagnosis statistics
