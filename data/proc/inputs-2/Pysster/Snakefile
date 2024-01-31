@@ -41,7 +41,7 @@ rule bed_to_fasta:
     params:
         genome_fa = lambda wc: f"../../../meta/genomes/{DATASETS_INFO[wc.DATASET]['genome']}/{DATASETS_INFO[wc.DATASET]['genome']}.fa",
     shell:
-        "bedtools getfasta -s -fi {params.genome_fa} -bed {input} > {output}"
+        "bedtools getfasta -name -s -fi {params.genome_fa} -bed {input} > {output}"
 
 rule fasta_to_upper:
     input:

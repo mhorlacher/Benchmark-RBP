@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-gw = glob_wildcards('samples-enabled/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD_2}.bed', followlinks=True)
+gw = glob_wildcards('../../samples-enabled/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD_2}.bed', followlinks=True)
 # print(gw)
 
 # DATASETS = ["iONMF", ]
@@ -24,7 +24,7 @@ def list_subdir_names(path):
 
 rule add_rbp_name:
     input:
-        filename = 'samples-enabled/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD_2}.bed'
+        filename = '../../samples-enabled/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD_2}.bed'
     output:
         bed = temp('processed/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD_2}.rbp.bed')
     params:
@@ -34,7 +34,7 @@ rule add_rbp_name:
 
 rule generate_windows_bed:
     input:
-        beds = lambda wc: expand('processed/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD}.rbp.bed', NAME=list_subdir_names(f'samples-enabled/{wc.DATASET}'), allow_missing=True),
+        beds = lambda wc: expand('processed/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD}.rbp.bed', NAME=list_subdir_names(f'../../samples-enabled/{wc.DATASET}'), allow_missing=True),
         transcript_bed = lambda wc: f".split/gencode.{DATASETS_INFO[wc.DATASET]['gencode']}/{DATASETS_INFO[wc.DATASET]['genome']}/transcripts.fold-{wc.FOLD}.bed",
     output:
         bed = temp('processed/{DATASET}/fold-{FOLD}/input.bed')
@@ -50,7 +50,7 @@ rule slop_to_sequence_size:
     output:
         bed = temp('processed/{DATASET}/fold-{FOLD}/input.slop.bed')
     params:
-        chromsizes = lambda wc: f"meta/genomes/{DATASETS_INFO[wc.DATASET]['genome']}/{DATASETS_INFO[wc.DATASET]['genome']}.genomefile",
+        chromsizes = lambda wc: f"../../../meta/genomes/{DATASETS_INFO[wc.DATASET]['genome']}/{DATASETS_INFO[wc.DATASET]['genome']}.genomefile",
         slop = 50
     shell:
         'bedtools slop -i {input.bed} -g {params.chromsizes} -b {params.slop} > {output.bed}'
@@ -63,16 +63,16 @@ rule bed_to_fasta:
         fasta = 'processed/{DATASET}/fold-{FOLD}/input.fasta',
         region_fasta = 'processed/{DATASET}/fold-{FOLD}/input.region.fasta',
     params:
-        genome_fa = lambda wc: f"meta/genomes/{DATASETS_INFO[wc.DATASET]['genome']}/{DATASETS_INFO[wc.DATASET]['genome']}.fa",
-        region_bw_minus = lambda wc: f"meta/genomes/{DATASETS_INFO[wc.DATASET]['genome']}/minus.bw",
-        region_bw_plus = lambda wc: f"meta/genomes/{DATASETS_INFO[wc.DATASET]['genome']}/plus.bw",
+        genome_fa = lambda wc: f"../../../meta/genomes/{DATASETS_INFO[wc.DATASET]['genome']}/{DATASETS_INFO[wc.DATASET]['genome']}.fa",
+        region_bw_minus = lambda wc: f"../../../meta/genomes/{DATASETS_INFO[wc.DATASET]['genome']}/minus.bw",
+        region_bw_plus = lambda wc: f"../../../meta/genomes/{DATASETS_INFO[wc.DATASET]['genome']}/plus.bw",
         region_len = 250
     shell:
         """
-        set +u
-        source $HOME/.bashrc
-        conda activate multiresbind-2
-        set -u
+        # set +u
+        # source $HOME/.bashrc
+        # conda activate multiresbind-2
+        # set -u
 
         python scripts/bed_to_fasta.py --input-bed {input.bed} --genome-fasta {params.genome_fa} --bw-minus {params.region_bw_minus} \
         --bw-plus {params.region_bw_plus} --region-len {params.region_len} --output-fasta {output.fasta} --output-region-fasta {output.region_fasta}

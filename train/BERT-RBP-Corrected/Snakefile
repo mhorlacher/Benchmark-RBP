@@ -1,3 +1,5 @@
+import random
+
 gw = glob_wildcards('inputs/{DATASET}/{NAME}/fold-{FOLD}/{TYPE}.fold-{FOLD_2}.tokenized.tsv')
 # print(gw)
 
@@ -20,7 +22,7 @@ rule merge_train:
         negative_tsvs = lambda wc: expand('inputs/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}.fold-{FOLD}.tokenized.tsv', FOLD=not_FOLD(wc.FOLD), allow_missing=True),
         positive_tsvs = lambda wc: expand('inputs/{DATASET}/{NAME}/fold-{FOLD}/positive.fold-{FOLD}.tokenized.tsv', FOLD=not_FOLD(wc.FOLD), allow_missing=True),
     output:
-        tsv = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/train.tsv'
+        tsv = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/samples.tsv'
     run:
         # print(output.tsv)
         # print(input.negative_tsvs)
@@ -40,11 +42,31 @@ rule merge_train:
 #     shell:
 #         "echo -e 'sequence\tlabel' > {output.tsv}"
 
+rule split_samples_train_val:
+    input:
+        tsv = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/samples.tsv'
+    output:
+        train_tsv = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/train.tsv',
+        dev_tsv = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/dev.tsv'
+    params:
+        train_percent = 0.8
+    run:
+        with open(input.tsv) as f_in, open(output.train_tsv, 'w') as f_train, open(output.dev_tsv, 'w') as f_dev:
+            print('sequence\tlabel', file=f_train)
+            print('sequence\tlabel', file=f_dev)
+            # skip header
+            _ = f_in.readline()
+            for line in f_in:
+                if random.random() < params.train_percent:
+                    print(line.strip(), file=f_train)
+                else:
+                    print(line.strip(), file=f_dev)
+
 rule BERTRBP_train_model:
     shadow: 'shallow'
     input:
         train_tsv = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/train.tsv',
-        # dev_tsv = 'processed/dummy-dev.tsv'
+        dev_tsv = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/dev.tsv',
     params:
         dnabert_model = '3-new-12w-0',
         directory = 'processed/{DATASET}/{NAME}/fold-{FOLD}/{NTYPE}/',

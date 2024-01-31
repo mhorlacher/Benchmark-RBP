@@ -50,10 +50,10 @@ rule bed_to_fasta:
         genome_fa = lambda wc: f"meta/genomes/{DATASETS_INFO[wc.DATASET]['genome']}/{DATASETS_INFO[wc.DATASET]['genome']}.fa",
     shell:
         """
-        set +u
-        source $HOME/.bashrc
-        conda activate multirbp-gpu
-        set -u
+        # set +u
+        # source $HOME/.bashrc
+        # conda activate multirbp-gpu
+        # set -u
 
         python scripts/bed_to_fasta.py --input-bed {input.bed} --genome-fasta {params.genome_fa} --output-fasta {output.fasta}
         """
